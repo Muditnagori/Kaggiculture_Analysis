@@ -1,0 +1,11 @@
+{
+  "cookies": [
+    {
+      "name": "KAGGLE_USER",
+      "value": "your_cookie_value_here",
+      "domain": ".kaggle.com",
+      "path": "/"
+    }
+  ],
+  "origins": []
+}

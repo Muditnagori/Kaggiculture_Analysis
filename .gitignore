@@ -1,0 +1,62 @@
+# ==============================================================================
+# SENSITIVE / CREDENTIALS / PRIVATE ACCOUNTS (NEVER UPLOAD!)
+# ==============================================================================
+auth.json
+**/auth.json
+*auth*.json
+.env
+.env.*
+*.key
+*.pem
+credentials.json
+token.json
+
+# ==============================================================================
+# DATA / DOWNLOADS / REPLAYS / RAW FILES (DO NOT UPLOAD!)
+# ==============================================================================
+downloads/
+**/downloads/
+download_history.*
+*.db
+*.db-shm
+*.db-wal
+*.parquet
+**/formatted_data/
+**/player_moves/
+**/outputs/
+*.csv
+# Ignore all json files except config.json
+*.json
+!Downloader/config.json
+
+# ==============================================================================
+# EXCLUDED LEGACY MODULES (Downloader, Extractor, and F2 only)
+# ==============================================================================
+Formatter/
+
+# ==============================================================================
+# PYTHON / CACHES / ENVIRONMENTS
+# ==============================================================================
+__pycache__/
+**/__pycache__/
+*.py[cod]
+*$py.class
+*.bak
+*.tmp
+*.log
+.venv/
+**/.venv/
+venv/
+**/venv/
+env/
+**/env/
+.pytest_cache/
+
+# ==============================================================================
+# IDE / OS ARTIFACTS
+# ==============================================================================
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+desktop.ini

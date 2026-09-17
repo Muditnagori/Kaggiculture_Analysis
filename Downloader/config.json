@@ -1,0 +1,11 @@
+{
+  "competition": "kaggriculture",
+  "top_percentage": 10.0,
+  "quick_players_count": 5,
+  "num_players": 5,
+  "matches_per_player": -1,
+  "outcome_filter": "all",
+  "batch_size": 5,
+  "output_dir": "downloads",
+  "auto_zip": true
+}
