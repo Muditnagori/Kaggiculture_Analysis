@@ -8,9 +8,9 @@ A high-performance analysis and extraction engine for Kaggriculture simulation r
 
 The Extractor seamlessly supports **two** input sources:
 
-### Source A: F2 Consolidated Parquet (Default & Recommended)
-- **Path**: `..\F2\formatted_data` (or `B:\Replicator\F2\formatted_data`)
-- **Coverage**: Full **8,736 matches** across all Kaggle simulation replays.
+### Source A: Formatter2 Consolidated Parquet (Default & Recommended)
+- **Path**: `..\Formatter2\formatted_data` (or `B:\Replicator\Formatter2\formatted_data`)
+- **Coverage**: Full match coverage across all Kaggle simulation replays.
 - **Unique Sequences**: **34,714** unique sequences discovered.
 - **Input Tables Consumed**:
   - `town.parquet`: Shop unlock events and exact step boundaries.
@@ -34,7 +34,7 @@ Double-clicking `run.bat` opens an interactive console menu with the currently a
 ==============================================================================
                 SHOP SEQUENCE MOVE EXTRACTOR (PLAYER PRIORITY)
 ==============================================================================
- Active Input Source : F2 Consolidated Parquet (..\F2\formatted_data)
+ Active Input Source : Formatter2 Consolidated Parquet (..\Formatter2\formatted_data)
  Output Directory    : .
 
  Key Extraction Logic:
@@ -54,7 +54,7 @@ Double-clicking `run.bat` opens an interactive console menu with the currently a
   [2] Query Specific Sequence (e.g. PIZZA, ICE_CREAM)
   [3] View Sequence Statistics
   [4] View All Sequences Arranged by Most Frequent (Top 200)
-  [5] Switch Input Source (Toggle F2 <-> Formatter)
+  [5] Switch Input Source (Toggle Formatter2 <-> Formatter)
   [6] Exit
 ```
 
@@ -105,11 +105,11 @@ All datasets are written using **atomic writes** (`temp_` + backup swap) to ensu
 ## 6. CLI Usage
 
 ```bash
-# Frequency Analysis (Top 200, F2 dataset)
-python extractor.py --input "..\F2\formatted_data" --frequency --top 200
+# Frequency Analysis (Top 200, Formatter2 dataset)
+python extractor.py --input "..\Formatter2\formatted_data" --frequency --top 200
 
-# Full Sequence Extraction (F2 dataset)
-python extractor.py --input "..\F2\formatted_data"
+# Full Sequence Extraction (Formatter2 dataset)
+python extractor.py --input "..\Formatter2\formatted_data"
 
 # Full Sequence Extraction (Formatter dataset)
 python extractor.py --input "..\Formatter\outputs"

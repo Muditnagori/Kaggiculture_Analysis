@@ -1,9 +1,9 @@
 """High-Performance Shop Sequence Move Extractor for Kaggriculture.
 
 Supports TWO input sources:
-1. F2 Consolidated Parquet (B:/Replicator/F2/formatted_data):
+1. Formatter2 Consolidated Parquet (B:/Replicator/Formatter2/formatted_data):
    - Consumes town.parquet, episodes.parquet, steps.parquet
-   - Full 8,736 match coverage across all players (34,714 unique sequences)
+   - Full match coverage across all players (34,714 unique sequences)
 2. Formatter Outputs (B:/Replicator/Formatter/outputs):
    - Consumes shop_unlocked_sequence.parquet and *_moves.parquet
    - Covers 42 top player datasets
@@ -320,6 +320,9 @@ def detect_input_source(input_path: str | Path) -> tuple[str, Path]:
 
     candidates = [
         p,
+        Path("../Formatter2/formatted_data").resolve(),
+        Path("Formatter2/formatted_data").resolve(),
+        Path("B:/Replicator/Formatter2/formatted_data").resolve(),
         Path("../F2/formatted_data").resolve(),
         Path("F2/formatted_data").resolve(),
         Path("B:/Replicator/F2/formatted_data").resolve(),
@@ -868,7 +871,7 @@ def run_formatter_extraction(formatter_path: Path, out_path: Path) -> bool:
 
 
 def run_sequence_extraction(
-    input_dir: str = "../F2/formatted_data",
+    input_dir: str = "../Formatter2/formatted_data",
     output_dir: str = ".",
 ) -> bool:
     """Dispatches extraction to F2 pipeline or Formatter pipeline based on input directory."""
@@ -914,6 +917,8 @@ def count_unique_sequence_frequency(
         candidates.append(Path(input_source).resolve() / "shop_unlocked_sequence.parquet")
 
     candidates.extend([
+        Path("B:/Replicator/Formatter2/formatted_data/town.parquet"),
+        base / "../Formatter2/formatted_data/town.parquet",
         Path("B:/Replicator/F2/formatted_data/town.parquet"),
         base / "../F2/formatted_data/town.parquet",
         Path("B:/Replicator/Formatter/outputs/shop_unlocked_sequence.parquet"),
@@ -1230,8 +1235,8 @@ if __name__ == "__main__":
     )
     parser.add_argument(
         "-i", "--input",
-        default="../F2/formatted_data",
-        help="Input directory (default: ../F2/formatted_data; also accepts ../Formatter/outputs)",
+        default="../Formatter2/formatted_data",
+        help="Input directory (default: ../Formatter2/formatted_data; also accepts ../Formatter/outputs)",
     )
     parser.add_argument(
         "-o", "--output",
@@ -1266,9 +1271,10 @@ if __name__ == "__main__":
         help="Number of top frequent sequences to display (default: 200)",
     )
     parser.add_argument(
-        "--f2",
+        "--formatter2", "--f2",
         action="store_true",
-        help="Explicitly use F2 consolidated Parquet datasets as input source",
+        dest="formatter2",
+        help="Explicitly use Formatter2 consolidated Parquet datasets as input source",
     )
     parser.add_argument(
         "--formatter",
@@ -1278,8 +1284,8 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     input_src = args.input
-    if args.f2:
-        input_src = "../F2/formatted_data"
+    if args.formatter2:
+        input_src = "../Formatter2/formatted_data"
     elif args.formatter:
         input_src = "../Formatter/outputs"
 
