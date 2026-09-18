@@ -93,6 +93,11 @@ B:/Replicator/F2/player_moves/
 ### Schema:
 - `episode_id` (int64)
 - `step`, `day`, `hour` (int32)
+- `current_shop` (string: active unlocked shop for current 72h phase, or `"PRE_SHOP"` for steps 0–71)
+- `step_in_shop_phase` (int32: step offset 0..71 within current shop phase)
+- `unlocked_shops_count` (int32: number of shops unlocked so far, 0..8)
+- `unlocked_shops` (string: JSON array of open shops, e.g. `'["YARN_STORE", "BAKERY"]'`)
+- `match_shop_sequence` (string: full match sequence, e.g. `"YARN_STORE -> BAKERY -> SMOOTHIE_SHOP..."`)
 - `player_rank` (int32), `player_name` (string), `player_index` (int32)
 - `action` (string: JSON move details)
 - `reward` (double: reward at step)

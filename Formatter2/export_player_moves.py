@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import argparse
 from collections import defaultdict
+import json
 import os
 from pathlib import Path
 import re
@@ -56,6 +57,11 @@ OUTPUT_SCHEMA = pa.schema([
     ("step", pa.int32()),
     ("day", pa.int32()),
     ("hour", pa.int32()),
+    ("current_shop", pa.string()),
+    ("step_in_shop_phase", pa.int32()),
+    ("unlocked_shops_count", pa.int32()),
+    ("unlocked_shops", pa.string()),
+    ("match_shop_sequence", pa.string()),
     ("player_rank", pa.int32()),
     ("player_name", pa.string()),
     ("player_index", pa.int32()),
@@ -67,6 +73,64 @@ OUTPUT_SCHEMA = pa.schema([
     ("match_result", pa.string()),
     ("source_file", pa.string()),
 ])
+
+
+def load_episode_shop_events(
+    town_path: Path,
+    episode_ids: List[int],
+) -> Tuple[Dict[int, str], Dict[int, List[Tuple[str, int, int, str]]]]:
+    """
+    Reads town.parquet filtered by target episode_ids and unlock steps (72, 144, ...).
+    Returns:
+      1. ep_seq: episode_id -> "YARN_STORE -> BAKERY -> ..."
+      2. ep_step_cache: episode_id -> list of 720 tuples:
+         (current_shop, step_in_shop_phase, unlocked_shops_count, unlocked_shops_json)
+    """
+    if not town_path.exists() or not episode_ids:
+        return {}, {}
+
+    unlock_steps = [72, 144, 216, 288, 360, 432, 504, 576]
+    dataset = ds.dataset(str(town_path), format="parquet")
+    filt = pc.is_in(ds.field("episode_id"), pa.array(episode_ids, type=pa.int64())) & \
+           pc.is_in(ds.field("step"), pa.array(unlock_steps, type=pa.int32()))
+
+    town_table = dataset.to_table(filter=filt, columns=["episode_id", "step", "shop", "shop_index"])
+
+    unlock_map: Dict[int, Dict[int, str]] = defaultdict(dict)
+    for eid, step, shop, s_idx in zip(
+        town_table.column("episode_id").to_pylist(),
+        town_table.column("step").to_pylist(),
+        town_table.column("shop").to_pylist(),
+        town_table.column("shop_index").to_pylist(),
+    ):
+        if step == (s_idx + 1) * 72:
+            unlock_map[eid][s_idx] = shop
+
+    ep_seq: Dict[int, str] = {}
+    ep_step_cache: Dict[int, List[Tuple[str, int, int, str]]] = {}
+
+    for eid, s_dict in unlock_map.items():
+        sorted_shops = [s_dict[k] for k in sorted(s_dict.keys())]
+        ep_seq[eid] = " -> ".join(sorted_shops)
+        json_prefixes = [json.dumps(sorted_shops[:k + 1]) for k in range(len(sorted_shops))]
+
+        cache: List[Tuple[str, int, int, str]] = []
+        for s in range(720):
+            if s < 72:
+                cache.append(("PRE_SHOP", s, 0, "[]"))
+            else:
+                k = min((s // 72) - 1, len(sorted_shops) - 1)
+                if k < 0:
+                    cache.append(("UNKNOWN", s, 0, "[]"))
+                else:
+                    c_shop = sorted_shops[k]
+                    s_phase = s - 72 * (k + 1)
+                    u_cnt = k + 1
+                    u_shops = json_prefixes[k]
+                    cache.append((c_shop, s_phase, u_cnt, u_shops))
+        ep_step_cache[eid] = cache
+
+    return ep_seq, ep_step_cache
 
 
 def get_top_players(rankings_path: Path, top_n: int) -> List[Dict[str, Any]]:
@@ -135,11 +199,13 @@ def extract_player_moves(
     player_rank: Optional[int],
     episodes_list: List[Tuple[int, int]],
     ep_info: Dict[int, Dict[str, Any]],
+    ep_seq: Dict[int, str],
+    ep_step_cache: Dict[int, List[Tuple[str, int, int, str]]],
     output_file: Path,
 ) -> Dict[str, Any]:
     """
     Extracts all moves for a given player across all their matches using PyArrow dataset filtering.
-    Writes a single consolidated Parquet file for this player.
+    Writes a single consolidated Parquet file for this player including step-level shop context.
     """
     t0 = time.time()
     if not episodes_list:
@@ -169,11 +235,12 @@ def extract_player_moves(
     if num_rows == 0:
         return {"rows": 0, "file_size_mb": 0.0, "time_s": time.time() - t0, "unique_matches": len(unique_eids)}
 
-    # Convert columns efficiently to add player context
+    # Convert columns efficiently to add player and shop context
     ep_col = steps_table.column("episode_id").to_pylist()
+    step_col = steps_table.column("step").to_pylist()
     player_idx_col = steps_table.column("player").to_pylist()
 
-    # Precompute match result & opponent per row
+    # Precompute match result, opponent & shop context per row
     ranks = [player_rank] * num_rows
     pnames = [player_name] * num_rows
     opponents: List[str] = []
@@ -181,7 +248,14 @@ def extract_player_moves(
     opp_rewards: List[float] = []
     results: List[str] = []
 
-    for eid, pidx in zip(ep_col, player_idx_col):
+    current_shops: List[str] = []
+    step_in_phases: List[int] = []
+    unlocked_counts: List[int] = []
+    unlocked_shops_list: List[str] = []
+    match_seqs: List[str] = []
+
+    for eid, step, pidx in zip(ep_col, step_col, player_idx_col):
+        # Match & opponent metadata
         meta = ep_info.get(eid)
         if meta:
             if pidx == 0:
@@ -210,12 +284,33 @@ def extract_player_moves(
         opp_rewards.append(opp_r)
         results.append(res)
 
+        # Shop unlock context
+        cache = ep_step_cache.get(eid)
+        if cache and 0 <= step < len(cache):
+            c_shop, s_phase, u_cnt, u_shops = cache[step]
+        else:
+            if step < 72:
+                c_shop, s_phase, u_cnt, u_shops = "PRE_SHOP", step, 0, "[]"
+            else:
+                c_shop, s_phase, u_cnt, u_shops = "UNKNOWN", step % 72, 0, "[]"
+
+        current_shops.append(c_shop)
+        step_in_phases.append(s_phase)
+        unlocked_counts.append(u_cnt)
+        unlocked_shops_list.append(u_shops)
+        match_seqs.append(ep_seq.get(eid, "UNKNOWN"))
+
     # Build final Arrow Table matching schema
     final_arrays = [
         steps_table.column("episode_id"),
         steps_table.column("step"),
         steps_table.column("day"),
         steps_table.column("hour"),
+        pa.array(current_shops, type=pa.string()),
+        pa.array(step_in_phases, type=pa.int32()),
+        pa.array(unlocked_counts, type=pa.int32()),
+        pa.array(unlocked_shops_list, type=pa.string()),
+        pa.array(match_seqs, type=pa.string()),
         pa.array(ranks, type=pa.int32()),
         pa.array(pnames, type=pa.string()),
         steps_table.column("player"),  # player_index
@@ -254,6 +349,7 @@ def export_top_players(
     rankings_path = formatted_data_dir / "rankings.parquet"
     episodes_path = formatted_data_dir / "episodes.parquet"
     steps_path = formatted_data_dir / "steps.parquet"
+    town_path = formatted_data_dir / "town.parquet"
 
     print("=" * 70, flush=True)
     print("      EXPORT TOP PLAYERS MOVES TO PARQUET (FROM FORMATTED DATA)", flush=True)
@@ -264,7 +360,7 @@ def export_top_players(
     print("-" * 70, flush=True)
 
     # 1. Validate required files exist
-    for p in [rankings_path, episodes_path, steps_path]:
+    for p in [rankings_path, episodes_path, steps_path, town_path]:
         if not p.exists():
             print(f"[!] Error: Required file missing: {p}", flush=True)
             print("    Please run the main formatter first to create formatted_data/.", flush=True)
@@ -296,6 +392,17 @@ def export_top_players(
     ep_info, player_episodes = load_episodes_metadata(episodes_path)
     print(f"   Indexed {len(ep_info):,} matches across all players in {time.time() - t_idx_start:.2f}s.\n", flush=True)
 
+    # 3.5. Index shop unlock events from town.parquet for target players
+    target_eids = set()
+    for p in top_players:
+        for eid, _ in player_episodes.get(p["player_name"], []):
+            target_eids.add(eid)
+
+    print(f"Indexing shop unlocks from town.parquet for {len(target_eids):,} matches...", flush=True)
+    t_town_start = time.time()
+    ep_seq, ep_step_cache = load_episode_shop_events(town_path, list(target_eids))
+    print(f"   Indexed shop sequences for {len(ep_step_cache):,} matches in {time.time() - t_town_start:.2f}s.\n", flush=True)
+
     # 4. Process each player
     output_dir.mkdir(parents=True, exist_ok=True)
     total_start = time.time()
@@ -319,6 +426,8 @@ def export_top_players(
             player_rank=p_rank,
             episodes_list=ep_list,
             ep_info=ep_info,
+            ep_seq=ep_seq,
+            ep_step_cache=ep_step_cache,
             output_file=out_filepath,
         )
 
