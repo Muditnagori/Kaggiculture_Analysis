@@ -54,8 +54,9 @@ Double-clicking `run.bat` opens an interactive console menu with the currently a
   [2] Query Specific Sequence (e.g. PIZZA, ICE_CREAM)
   [3] View Sequence Statistics
   [4] View All Sequences Arranged by Most Frequent (Top 200)
-  [5] Switch Input Source (Toggle Formatter2 <-> Formatter)
-  [6] Exit
+  [5] Sync Live Kaggle Leaderboard Rankings
+  [6] Switch Input Source (Toggle Formatter2 <-> Formatter)
+  [7] Exit
 ```
 
 ---
@@ -75,17 +76,22 @@ In Kaggriculture matches (720 total steps):
 
 ---
 
-## 4. Cascading Player Priority & Overwrite Rules
+## 4. Live Ranking System & Zero-Overlap Priority Rules
 
-The extractor enforces a strict **cascading priority hierarchy** across all players:
-$$\text{Rank 1} > \text{Rank 2} > \text{Rank 3} > \text{Rank 4} > \dots$$
+The extractor enforces a strict **live cascading priority hierarchy** connected in real time to the official Kaggle competition leaderboard:
+$$\text{Rank 1 (Unknown Mother-Goose)} > \text{Rank 2 (Majkel1337)} > \text{Rank 3 (SpaTaro)} > \dots > \text{Rank 999 (Unranked)}$$
 
-1. **Higher-Priority Locks In**:
-   If a particular sequence is found in a higher-ranked player, it locks in. Lower-ranked players cannot overwrite it.
-2. **Cascading Overwrite**:
-   If a sequence was observed in a lower-ranked player, but also played by a higher-ranked player in another match, the higher-ranked player overwrites it.
-3. **Tie-Breaking**:
-   Within the same rank tier, the match with the highest winning reward is chosen.
+### Key Ranking Guarantees:
+1. **Zero Rank Overlap**:
+   Instead of using stale folder numbers (where multiple top players were labeled "Rank 1"), each player's rank is synchronized with the live Kaggle leaderboard (`live_rankings.py` / `rankings.parquet`). Every rank belongs to exactly one player.
+2. **Winner-Only Rank Attribution**:
+   The winning player of each match (`w_name`) is evaluated against the live leaderboard. If an unranked player wins against a top player, they are correctly classified as unranked (`999`) and never falsely inherit Rank #1.
+3. **Higher-Priority Locks In**:
+   If a particular sequence is found in a higher-ranked player (e.g. Rank 1), it permanently locks in. Lower-ranked players cannot overwrite it.
+4. **Cascading Overwrite**:
+   If a sequence was observed in a lower-ranked player, but also won by a higher-ranked player in another match, the higher-ranked player overwrites it.
+5. **Score Tie-Breaking**:
+   Within the *same player's matches* (e.g. Rank 2 vs Rank 2), the match with the highest winning reward is chosen.
 
 ---
 

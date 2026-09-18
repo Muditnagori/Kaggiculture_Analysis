@@ -40,12 +40,26 @@ import pandas as pd
 import pyarrow as pa
 import pyarrow.parquet as pq
 
+try:
+    from live_rankings import load_live_player_ranks
+except ImportError:
+    load_live_player_ranks = None
+
 if hasattr(sys.stdout, "reconfigure"):
     try:
         sys.stdout.reconfigure(encoding="utf-8", errors="replace")
         sys.stderr.reconfigure(encoding="utf-8", errors="replace")
     except Exception:
         pass
+
+
+def safe_console_str(text: Any) -> str:
+    """Safely converts text to a string that won't fail on Windows cmd charmaps."""
+    s = str(text)
+    try:
+        return s.encode(sys.stdout.encoding or "utf-8", errors="replace").decode(sys.stdout.encoding or "utf-8")
+    except Exception:
+        return s.encode("ascii", errors="replace").decode("ascii")
 
 # Canonical Shop Name Simplification Map
 SHOP_NAME_MAP = {
@@ -347,17 +361,17 @@ def detect_input_source(input_path: str | Path) -> tuple[str, Path]:
 # 4. SEQUENCE EXTRACTION - F2 PIPELINE (HIGH-PERFORMANCE BATCH STREAMING)
 # ==============================================================================
 
-def run_f2_extraction(f2_path: Path, out_path: Path) -> bool:
+def run_f2_extraction(f2_path: Path, out_path: Path, sync_live: bool = True) -> bool:
     """
-    High-performance sequence extraction directly from F2 consolidated Parquet datasets:
+    High-performance sequence extraction directly from Formatter2 consolidated Parquet datasets:
     - town.parquet: match shop sequences and unlock steps
     - episodes.parquet: match rewards, winner determination, player priority ranks
     - steps.parquet: per-step actions, rewards, timestamps
-    Uses fast PyArrow batch streaming to process 12.5M rows in ~1-2 minutes.
+    Uses fast PyArrow batch streaming to process matches in ~1-2 minutes.
     """
     t0 = time.time()
     print("\n" + "=" * 80)
-    print("      HIGH-PERFORMANCE SEQUENCE EXTRACTION (F2 CONSOLIDATED DATASET)")
+    print("      HIGH-PERFORMANCE SEQUENCE EXTRACTION (FORMATTER2 CONSOLIDATED DATASET)")
     print("=" * 80)
     print(f" Input Directory : {f2_path}")
     print(f" Output Directory: {out_path}")
@@ -376,8 +390,13 @@ def run_f2_extraction(f2_path: Path, out_path: Path) -> bool:
     ).to_pandas()
     df_town = df_town.sort_values(["episode_id", "step"]).drop_duplicates(subset=["episode_id", "shop_index"])
 
-    # 2. Episode Metadata & Player Priorities
-    print("[>] Step 2/4: Loading match winner & rank metadata from episodes.parquet...", flush=True)
+    # 2. Episode Metadata & Live Player Priorities (Zero Overlap)
+    print("[>] Step 2/4: Loading match winner & live rank metadata (zero overlap)...", flush=True)
+    live_ranks: dict[str, int] = {}
+    if load_live_player_ranks is not None:
+        rankings_file = f2_path / "rankings.parquet"
+        live_ranks = load_live_player_ranks(rankings_path=rankings_file, sync_live=sync_live, verbose=True)
+
     ep_file = f2_path / "episodes.parquet"
     if not ep_file.exists():
         print(f"[!] Error: episodes.parquet missing in {f2_path}")
@@ -397,12 +416,13 @@ def run_f2_extraction(f2_path: Path, out_path: Path) -> bool:
         r0 = float(r.get("player_0_reward") or 0.0)
         r1 = float(r.get("player_1_reward") or 0.0)
         w_idx = 0 if r0 >= r1 else 1
-        w_name = str(r["player_0_name"] if w_idx == 0 else r["player_1_name"])
+        w_name = str(r["player_0_name"] if w_idx == 0 else r["player_1_name"]).strip()
         w_rew = max(r0, r1)
-        rank_val = r.get("source_rank")
-        rank = int(rank_val) if rank_val is not None and not pd.isna(rank_val) else 999
-        p_name = str(r.get("source_player_name") or w_name)
-        ep_meta[e_id] = {"w_idx": w_idx, "rank": rank, "p_name": p_name, "reward": w_rew}
+
+        # Strictly assign winning player's live rank from Kaggle leaderboard (zero overlap)
+        rank = live_ranks.get(w_name.lower(), 999)
+
+        ep_meta[e_id] = {"w_idx": w_idx, "rank": rank, "p_name": w_name, "reward": w_rew}
 
     seq_frequencies: Counter = Counter()
     seq_best: dict[tuple[str, ...], dict[str, Any]] = {}
@@ -639,9 +659,10 @@ def run_f2_extraction(f2_path: Path, out_path: Path) -> bool:
     by_player = df_summary.groupby(["player_rank", "player_name"]).size().to_dict()
     p_headers = ["Rank", "Player Name", "Unique Sequences", "Share %"]
     p_rows = []
-    for (r_val, p_val), cnt in sorted(by_player.items())[:12]:
+    for (r_val, p_val), cnt in sorted(by_player.items())[:15]:
         pct = f"{(cnt / len(df_summary)) * 100:.1f}%"
-        p_rows.append([f"#{r_val:02d}", str(p_val), f"{cnt:,}", pct])
+        rk_str = f"#{r_val:02d}" if r_val < 900 else "Unranked"
+        p_rows.append([rk_str, safe_console_str(p_val), f"{cnt:,}", pct])
     print_ascii_table(p_headers, p_rows, ["^", "<", ">", ">"])
     print("=" * 80 + "\n")
     return True
@@ -651,7 +672,7 @@ def run_f2_extraction(f2_path: Path, out_path: Path) -> bool:
 # 5. SEQUENCE EXTRACTION - FORMATTER PIPELINE
 # ==============================================================================
 
-def run_formatter_extraction(formatter_path: Path, out_path: Path) -> bool:
+def run_formatter_extraction(formatter_path: Path, out_path: Path, sync_live: bool = True) -> bool:
     """Extracts sequences from Formatter folder (shop_unlocked_sequence + *_moves)."""
     t0 = time.time()
     print("\n" + "=" * 80)
@@ -660,6 +681,11 @@ def run_formatter_extraction(formatter_path: Path, out_path: Path) -> bool:
     print(f" Input Directory : {formatter_path}")
     print(f" Output Directory: {out_path}")
     print("-" * 80)
+
+    # Load live rankings if available
+    live_ranks: dict[str, int] = {}
+    if load_live_player_ranks is not None:
+        live_ranks = load_live_player_ranks(sync_live=sync_live, verbose=True)
 
     seq_file = formatter_path / "shop_unlocked_sequence.parquet"
     if not seq_file.exists():
@@ -694,13 +720,17 @@ def run_formatter_extraction(formatter_path: Path, out_path: Path) -> bool:
     player_datasets: list[tuple[int, str, Path]] = []
     for f in formatter_path.glob("*_moves.parquet"):
         clean_name = f.stem[:-6] if f.stem.endswith("_moves") else f.stem
-        rank = parse_player_rank(clean_name)
+        raw_pname = re.sub(r"^\d+_", "", clean_name).replace("_", " ").strip()
+        live_r = live_ranks.get(raw_pname.lower())
+        rank = live_r if live_r is not None else parse_player_rank(clean_name)
         player_datasets.append((rank, clean_name, f))
 
     for d in formatter_path.iterdir():
         if d.is_dir() and (d / "winning_agent_details.parquet").exists():
             clean_name = d.name
-            rank = parse_player_rank(clean_name)
+            raw_pname = re.sub(r"^\d+_", "", clean_name).replace("_", " ").strip()
+            live_r = live_ranks.get(raw_pname.lower())
+            rank = live_r if live_r is not None else parse_player_rank(clean_name)
             if not any(ds[1] == clean_name for ds in player_datasets):
                 player_datasets.append((rank, clean_name, d / "winning_agent_details.parquet"))
 
@@ -862,9 +892,10 @@ def run_formatter_extraction(formatter_path: Path, out_path: Path) -> bool:
     by_player = summary_df.groupby(["player_rank", "player_name"]).size().to_dict()
     p_headers = ["Rank", "Player Name", "Unique Sequences", "Share %"]
     p_rows = []
-    for (r_val, p_val), cnt in sorted(by_player.items())[:12]:
+    for (r_val, p_val), cnt in sorted(by_player.items())[:15]:
         pct = f"{(cnt / len(summary_df)) * 100:.1f}%"
-        p_rows.append([f"#{r_val:02d}", str(p_val), f"{cnt:,}", pct])
+        rk_str = f"#{r_val:02d}" if r_val < 900 else "Unranked"
+        p_rows.append([rk_str, safe_console_str(p_val), f"{cnt:,}", pct])
     print_ascii_table(p_headers, p_rows, ["^", "<", ">", ">"])
     print("=" * 80 + "\n")
     return True
@@ -873,14 +904,15 @@ def run_formatter_extraction(formatter_path: Path, out_path: Path) -> bool:
 def run_sequence_extraction(
     input_dir: str = "../Formatter2/formatted_data",
     output_dir: str = ".",
+    sync_live: bool = True,
 ) -> bool:
     """Dispatches extraction to F2 pipeline or Formatter pipeline based on input directory."""
     mode, resolved_path = detect_input_source(input_dir)
     out_p = Path(output_dir).resolve()
     if mode == "F2":
-        return run_f2_extraction(resolved_path, out_p)
+        return run_f2_extraction(resolved_path, out_p, sync_live=sync_live)
     else:
-        return run_formatter_extraction(resolved_path, out_p)
+        return run_formatter_extraction(resolved_path, out_p, sync_live=sync_live)
 
 
 # ==============================================================================
@@ -1281,6 +1313,11 @@ if __name__ == "__main__":
         action="store_true",
         help="Explicitly use Formatter outputs as input source",
     )
+    parser.add_argument(
+        "--no-sync",
+        action="store_true",
+        help="Skip auto-syncing live Kaggle leaderboard rankings",
+    )
     args = parser.parse_args()
 
     input_src = args.input
@@ -1303,4 +1340,4 @@ if __name__ == "__main__":
     elif args.query:
         query_sequence(args.query, extractor_dir=args.output)
     else:
-        run_sequence_extraction(input_dir=input_src, output_dir=args.output)
+        run_sequence_extraction(input_dir=input_src, output_dir=args.output, sync_live=not args.no_sync)

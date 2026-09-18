@@ -38,21 +38,23 @@ echo   [1] Run Full Sequence Extraction (Generates sequence_moves.parquet)
 echo   [2] Query Specific Sequence (e.g. PIZZA, ICE_CREAM)
 echo   [3] View Sequence Statistics
 echo   [4] View All Sequences Arranged by Most Frequent (Top 200)
-echo   [5] Switch Input Source (Toggle Formatter2 ^< - ^> Formatter)
-echo   [6] Exit
+echo   [5] Sync Live Kaggle Leaderboard Rankings
+echo   [6] Switch Input Source (Toggle Formatter2 ^< - ^> Formatter)
+echo   [7] Exit
 echo.
 echo ==============================================================================
-set /p choice="Enter your choice (1-6) [default: 4]: "
+set /p choice="Enter your choice (1-7) [default: 4]: "
 
 if "%choice%"=="" set choice=4
 if "%choice%"=="1" goto :mode_extract
 if "%choice%"=="2" goto :mode_query
 if "%choice%"=="3" goto :mode_stats
 if "%choice%"=="4" goto :mode_frequency
-if "%choice%"=="5" goto :toggle_source
-if "%choice%"=="6" goto :exit
+if "%choice%"=="5" goto :mode_sync
+if "%choice%"=="6" goto :toggle_source
+if "%choice%"=="7" goto :exit
 
-echo [!] Invalid selection. Please choose a valid number (1-6).
+echo [!] Invalid selection. Please choose a valid number (1-7).
 timeout /t 2 >nul
 goto :menu
 
@@ -116,6 +118,14 @@ echo ===========================================================================
 echo  Source: %INPUT_LABEL%
 echo.
 python extractor.py --input "%INPUT_DIR%" --frequency --top 200
+goto :end
+
+:mode_sync
+echo.
+echo ==============================================================================
+echo                 SYNC LIVE KAGGLE LEADERBOARD RANKINGS
+echo ==============================================================================
+python live_rankings.py
 goto :end
 
 :end
