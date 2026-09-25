@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Route Catalog</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.4/chart.umd.min.js"></script>
+<style>
+:root { color-scheme: dark; }
+body {
+  background:#171a14; color:#e8e6df; font-family: -apple-system, Segoe UI, Roboto, sans-serif;
+  margin:0; padding:24px; max-width:1100px; margin-inline:auto;
+}
+h1 { font-size: 22px; margin-bottom:4px; }
+.subtitle { color:#a9a496; margin-bottom:24px; font-size:14px; }
+.caveat {
+  background:#20241a; border:1px solid #d1a256; border-radius:8px;
+  padding:12px 16px; margin-bottom:24px; font-size:13px; color:#d1a256;
+}
+.summary-grid {
+  display:grid; grid-template-columns: repeat(auto-fit, minmax(180px,1fr));
+  gap:12px; margin-bottom:28px;
+}
+.stat { background:#1e2118; border:1px solid #33362a; border-radius:8px; padding:12px 14px; }
+.stat .label { font-size:11px; text-transform:uppercase; letter-spacing:.05em; color:#a9a496; }
+.stat .value { font-size:20px; font-weight:700; margin-top:4px; }
+.panel {
+  background:#1e2118; border:1px solid #33362a; border-radius:12px;
+  padding:18px 20px; margin-bottom:24px;
+}
+.panel h2 { font-size:16px; margin:0 0 4px 0; }
+.panel .desc { font-size:13px; color:#a9a496; margin-bottom:14px; }
+table { width:100%; border-collapse: collapse; font-size:13px; }
+th, td { text-align:left; padding:6px 10px; border-bottom:1px solid #33362a; }
+th { color:#a9a496; font-weight:600; font-size:11px; text-transform:uppercase; letter-spacing:.04em; }
+tr:hover td { background:#20241a; }
+.match-exact { color:#a3d977; }
+.match-loose { color:#d1a256; }
+.match-none { color:#e07a5f; }
+.gantt-row { display:flex; height:36px; margin-bottom:6px; border-radius:4px; overflow:hidden; }
+.gantt-seg {
+  display:flex; align-items:center; justify-content:center; font-size:11px;
+  color:#171a14; font-weight:600; border-right:2px solid #171a14; white-space:nowrap; overflow:hidden;
+}
+.gantt-axis { display:flex; font-size:10px; color:#a9a496; margin-bottom:4px; }
+</style>
+</head>
+<body>
+<h1>Route Catalog</h1>
+<div class="subtitle">Recurring action-sequence routes discovered directly from player replays, at every length</div>
+<div class="caveat" id="caveat"></div>
+<div class="summary-grid" id="summary-grid"></div>
+
+<div class="panel">
+  <h2>Recurring routes by length (in windows)</h2>
+  <div class="desc">How many distinct recurring routes exist at each length. A "window" is 72 steps (one shop-unlock period).</div>
+  <canvas id="chart-length"></canvas>
+</div>
+
+<div class="panel">
+  <h2>Top recurring routes</h2>
+  <div class="desc">Ranked by how many times the exact same action sequence was played, from the same starting situation.</div>
+  <table id="route-table"></table>
+</div>
+
+<script>
+const DATA = {"n_replays_scanned": 118, "n_skipped": 0, "n_candidates_seen": 12980, "n_distinct_entries": 12765, "n_recurring_entries": 111, "n_loose_families": 12756, "length_histogram": {"1": 69, "2": 35, "3": 5, "4": 1, "5": 1}, "rows": [{"situation": "(opening, no shops yet)", "length_windows": 1, "length_steps": 72, "times_seen": 20, "avg_margin": 23435, "distinct_episodes": 20}, {"situation": "(opening, no shops yet)", "length_windows": 1, "length_steps": 72, "times_seen": 15, "avg_margin": -23729, "distinct_episodes": 15}, {"situation": "(opening, no shops yet)", "length_windows": 2, "length_steps": 144, "times_seen": 8, "avg_margin": -25504, "distinct_episodes": 8}, {"situation": "(opening, no shops yet)", "length_windows": 1, "length_steps": 72, "times_seen": 8, "avg_margin": 19742, "distinct_episodes": 8}, {"situation": "(opening, no shops yet)", "length_windows": 1, "length_steps": 72, "times_seen": 8, "avg_margin": 26845, "distinct_episodes": 8}, {"situation": "(opening, no shops yet)", "length_windows": 1, "length_steps": 72, "times_seen": 6, "avg_margin": 7978, "distinct_episodes": 6}, {"situation": "(opening, no shops yet)", "length_windows": 1, "length_steps": 72, "times_seen": 6, "avg_margin": 7618, "distinct_episodes": 6}, {"situation": "(opening, no shops yet)", "length_windows": 1, "length_steps": 72, "times_seen": 5, "avg_margin": 4703, "distinct_episodes": 4}, {"situation": "(opening, no shops yet)", "length_windows": 2, "length_steps": 144, "times_seen": 5, "avg_margin": 24421, "distinct_episodes": 5}, {"situation": "PIZZA_SHOP", "length_windows": 1, "length_steps": 72, "times_seen": 5, "avg_margin": 24421, "distinct_episodes": 5}, {"situation": "(opening, no shops yet)", "length_windows": 2, "length_steps": 144, "times_seen": 4, "avg_margin": -14982, "distinct_episodes": 4}, {"situation": "YARN_STORE", "length_windows": 1, "length_steps": 72, "times_seen": 4, "avg_margin": -27441, "distinct_episodes": 4}, {"situation": "YARN_STORE", "length_windows": 2, "length_steps": 144, "times_seen": 4, "avg_margin": -27441, "distinct_episodes": 4}, {"situation": "YARN_STORE", "length_windows": 3, "length_steps": 216, "times_seen": 4, "avg_margin": -27441, "distinct_episodes": 4}, {"situation": "(opening, no shops yet)", "length_windows": 1, "length_steps": 72, "times_seen": 4, "avg_margin": 38051, "distinct_episodes": 4}, {"situation": "(opening, no shops yet)", "length_windows": 1, "length_steps": 72, "times_seen": 4, "avg_margin": -6771, "distinct_episodes": 4}, {"situation": "BRUNCH_SPOT", "length_windows": 1, "length_steps": 72, "times_seen": 3, "avg_margin": 23743, "distinct_episodes": 3}, {"situation": "(opening, no shops yet)", "length_windows": 2, "length_steps": 144, "times_seen": 3, "avg_margin": 21166, "distinct_episodes": 3}, {"situation": "FARMERS_MARKET", "length_windows": 1, "length_steps": 72, "times_seen": 3, "avg_margin": 21166, "distinct_episodes": 3}, {"situation": "(opening, no shops yet)", "length_windows": 1, "length_steps": 72, "times_seen": 3, "avg_margin": 16993, "distinct_episodes": 3}, {"situation": "ICE_CREAM_SHOP", "length_windows": 1, "length_steps": 72, "times_seen": 3, "avg_margin": 21630, "distinct_episodes": 3}, {"situation": "ICE_CREAM_SHOP", "length_windows": 1, "length_steps": 72, "times_seen": 3, "avg_margin": 17838, "distinct_episodes": 3}, {"situation": "(opening, no shops yet)", "length_windows": 2, "length_steps": 144, "times_seen": 3, "avg_margin": -30655, "distinct_episodes": 3}, {"situation": "(opening, no shops yet)", "length_windows": 2, "length_steps": 144, "times_seen": 3, "avg_margin": 21183, "distinct_episodes": 3}, {"situation": "BAKERY", "length_windows": 1, "length_steps": 72, "times_seen": 3, "avg_margin": 21183, "distinct_episodes": 3}, {"situation": "(opening, no shops yet)", "length_windows": 1, "length_steps": 72, "times_seen": 3, "avg_margin": -26835, "distinct_episodes": 3}, {"situation": "(opening, no shops yet)", "length_windows": 2, "length_steps": 144, "times_seen": 3, "avg_margin": -26835, "distinct_episodes": 3}, {"situation": "PIZZA_SHOP", "length_windows": 1, "length_steps": 72, "times_seen": 3, "avg_margin": -27706, "distinct_episodes": 3}, {"situation": "YARN_STORE", "length_windows": 1, "length_steps": 72, "times_seen": 3, "avg_margin": 31652, "distinct_episodes": 3}, {"situation": "(opening, no shops yet)", "length_windows": 1, "length_steps": 72, "times_seen": 3, "avg_margin": -22347, "distinct_episodes": 3}]};
+const COLORS = ["#d1a256","#7fb3d5","#a3d977","#e07a5f","#9b8fd1","#f2c14e"];
+
+document.getElementById("caveat").textContent =
+  `Built from ${DATA.n_replays_scanned} replay(s), ${DATA.n_skipped} skipped. ` +
+  `${DATA.n_candidates_seen} candidate routes examined across every length; ` +
+  `${DATA.n_recurring_entries} of ${DATA.n_distinct_entries} distinct exact routes recur more than once.`;
+
+const cards = [
+  ["Replays scanned", DATA.n_replays_scanned],
+  ["Candidates examined", DATA.n_candidates_seen.toLocaleString()],
+  ["Distinct exact routes", DATA.n_distinct_entries.toLocaleString()],
+  ["Recurring routes", DATA.n_recurring_entries],
+  ["Loose families", DATA.n_loose_families.toLocaleString()],
+];
+document.getElementById("summary-grid").innerHTML = cards.map(([label, value]) =>
+  `<div class="stat"><div class="label">${label}</div><div class="value">${value}</div></div>`
+).join("");
+
+const lengths = Object.keys(DATA.length_histogram).map(Number).sort((a,b)=>a-b);
+new Chart(document.getElementById("chart-length"), {
+  type: "bar",
+  data: {
+    labels: lengths.map(l => `${l}w (${l*72} steps)`),
+    datasets: [{ label: "recurring routes", data: lengths.map(l => DATA.length_histogram[l]), backgroundColor: COLORS[0] }]
+  }
+});
+
+const tbl = document.getElementById("route-table");
+let rows = "<tr><th>Situation</th><th>Length</th><th>Times seen</th><th>Distinct matches</th><th>Avg margin</th></tr>";
+DATA.rows.forEach(r => {
+  rows += `<tr><td>${r.situation}</td><td>${r.length_windows}w (${r.length_steps} steps)</td>` +
+          `<td>${r.times_seen}</td><td>${r.distinct_episodes}</td><td>${r.avg_margin >= 0 ? '+' : ''}${r.avg_margin.toLocaleString()}</td></tr>`;
+});
+tbl.innerHTML = rows;
+</script>
+</body>
+</html>

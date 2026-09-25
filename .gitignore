@@ -25,9 +25,13 @@ download_history.*
 **/player_moves/
 **/outputs/
 *.csv
-# Ignore all json files except config.json
-*.json
-!Downloader/config.json
+# Match replays & temporary system data
+Kaggiculture_Analysis/Downloader/downloads/
+Kaggiculture_Analysis/
+.system_generated/
+route_catalog/catalog.json
+*.json.gz
+*.tar.gz
 
 # ==============================================================================
 # EXCLUDED LEGACY MODULES (Downloader, Extractor, and F2 only)

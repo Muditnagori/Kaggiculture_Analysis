@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Route Timeline</title>
+<style>
+:root { color-scheme: dark; }
+body {
+  background:#171a14; color:#e8e6df; font-family: -apple-system, Segoe UI, Roboto, sans-serif;
+  margin:0; padding:24px; max-width:1100px; margin-inline:auto;
+}
+h1 { font-size: 22px; margin-bottom:4px; }
+.subtitle { color:#a9a496; margin-bottom:24px; font-size:14px; }
+.caveat {
+  background:#20241a; border:1px solid #d1a256; border-radius:8px;
+  padding:12px 16px; margin-bottom:24px; font-size:13px; color:#d1a256;
+}
+.summary-grid {
+  display:grid; grid-template-columns: repeat(auto-fit, minmax(180px,1fr));
+  gap:12px; margin-bottom:28px;
+}
+.stat { background:#1e2118; border:1px solid #33362a; border-radius:8px; padding:12px 14px; }
+.stat .label { font-size:11px; text-transform:uppercase; letter-spacing:.05em; color:#a9a496; }
+.stat .value { font-size:20px; font-weight:700; margin-top:4px; }
+.panel {
+  background:#1e2118; border:1px solid #33362a; border-radius:12px;
+  padding:18px 20px; margin-bottom:24px;
+}
+.panel h2 { font-size:16px; margin:0 0 4px 0; }
+.panel .desc { font-size:13px; color:#a9a496; margin-bottom:14px; }
+table { width:100%; border-collapse: collapse; font-size:13px; }
+th, td { text-align:left; padding:6px 10px; border-bottom:1px solid #33362a; }
+th { color:#a9a496; font-weight:600; font-size:11px; text-transform:uppercase; letter-spacing:.04em; }
+tr:hover td { background:#20241a; }
+.match-exact { color:#a3d977; }
+.match-loose { color:#d1a256; }
+.match-none { color:#e07a5f; }
+.gantt-row { display:flex; height:36px; margin-bottom:6px; border-radius:4px; overflow:hidden; }
+.gantt-seg {
+  display:flex; align-items:center; justify-content:center; font-size:11px;
+  color:#171a14; font-weight:600; border-right:2px solid #171a14; white-space:nowrap; overflow:hidden;
+}
+.gantt-axis { display:flex; font-size:10px; color:#a9a496; margin-bottom:4px; }
+</style>
+</head>
+<body>
+<h1>Route Timeline</h1>
+<div class="subtitle">5f43b0fe-b00a-11f1-aef5-0242ac130204 &mdash; player 1</div>
+<div class="caveat">
+  Green = a route that also recurs elsewhere in the catalog. Orange = a loose/approximate match.
+  Red = no known recurring route was found for this stretch (unique to this match, at least in the
+  data this catalog was built from).
+</div>
+
+<div class="panel">
+  <h2>Timeline (720 steps)</h2>
+  <div class="gantt-axis" id="gantt-axis"></div>
+  <div class="gantt-row" id="gantt-row"></div>
+</div>
+
+<div class="panel">
+  <h2>Segments</h2>
+  <table id="segment-table"></table>
+</div>
+
+<script>
+const DATA = {"episode_id": "5f43b0fe-b00a-11f1-aef5-0242ac130204", "player_index": 1, "events": [{"start_step": 0, "end_step": 72, "length_windows": 1, "situation": "(opening)", "match_type": "exact", "times_seen_elsewhere": 2}, {"start_step": 72, "end_step": 144, "length_windows": 1, "situation": "PET_CAFE", "match_type": "none", "times_seen_elsewhere": 0}, {"start_step": 144, "end_step": 216, "length_windows": 1, "situation": "PET_CAFE -> BRUNCH_SPOT", "match_type": "none", "times_seen_elsewhere": 0}, {"start_step": 216, "end_step": 288, "length_windows": 1, "situation": "PET_CAFE -> BRUNCH_SPOT -> SMOOTHIE_SHOP", "match_type": "none", "times_seen_elsewhere": 0}, {"start_step": 288, "end_step": 360, "length_windows": 1, "situation": "PET_CAFE -> BRUNCH_SPOT -> SMOOTHIE_SHOP -> PIZZA_SHOP", "match_type": "none", "times_seen_elsewhere": 0}, {"start_step": 360, "end_step": 432, "length_windows": 1, "situation": "PET_CAFE -> BRUNCH_SPOT -> SMOOTHIE_SHOP -> PIZZA_SHOP -> BRUNCH_SPOT", "match_type": "none", "times_seen_elsewhere": 0}, {"start_step": 432, "end_step": 504, "length_windows": 1, "situation": "PET_CAFE -> BRUNCH_SPOT -> SMOOTHIE_SHOP -> PIZZA_SHOP -> BRUNCH_SPOT -> SMOOTHIE_SHOP", "match_type": "none", "times_seen_elsewhere": 0}, {"start_step": 504, "end_step": 576, "length_windows": 1, "situation": "PET_CAFE -> BRUNCH_SPOT -> SMOOTHIE_SHOP -> PIZZA_SHOP -> BRUNCH_SPOT -> SMOOTHIE_SHOP -> PET_CAFE", "match_type": "none", "times_seen_elsewhere": 0}, {"start_step": 576, "end_step": 648, "length_windows": 1, "situation": "PET_CAFE -> BRUNCH_SPOT -> SMOOTHIE_SHOP -> PIZZA_SHOP -> BRUNCH_SPOT -> SMOOTHIE_SHOP -> PET_CAFE -> PIZZA_SHOP", "match_type": "none", "times_seen_elsewhere": 0}, {"start_step": 648, "end_step": 720, "length_windows": 1, "situation": "PET_CAFE -> BRUNCH_SPOT -> SMOOTHIE_SHOP -> PIZZA_SHOP -> BRUNCH_SPOT -> SMOOTHIE_SHOP -> PET_CAFE -> PIZZA_SHOP", "match_type": "none", "times_seen_elsewhere": 0}]};
+const TOTAL_STEPS = 720;
+
+const axis = document.getElementById("gantt-axis");
+let axisHtml = "";
+for (let s = 0; s <= TOTAL_STEPS; s += 72) {
+  axisHtml += `<div style="width:${72/TOTAL_STEPS*100}%">day ${Math.floor(s/24)+1}</div>`;
+}
+axis.innerHTML = axisHtml;
+
+const row = document.getElementById("gantt-row");
+row.innerHTML = DATA.events.map(e => {
+  const width = (e.end_step - e.start_step) / TOTAL_STEPS * 100;
+  const color = e.match_type === "exact" ? "#a3d977" : (e.match_type === "loose" ? "#d1a256" : "#e07a5f");
+  const label = e.match_type === "none" ? "?" : `${e.length_windows}w`;
+  return `<div class="gantt-seg" style="width:${width}%;background:${color}" title="steps ${e.start_step}-${e.end_step}, ${e.match_type}">${label}</div>`;
+}).join("");
+
+const tbl = document.getElementById("segment-table");
+let rows = "<tr><th>Steps</th><th>Length</th><th>Match</th><th>Seen elsewhere</th><th>Situation</th></tr>";
+DATA.events.forEach(e => {
+  const cls = e.match_type === "exact" ? "match-exact" : (e.match_type === "loose" ? "match-loose" : "match-none");
+  rows += `<tr><td>${e.start_step}-${e.end_step}</td><td>${e.length_windows}w</td>` +
+          `<td class="${cls}">${e.match_type}</td><td>${e.times_seen_elsewhere}</td><td>${e.situation}</td></tr>`;
+});
+tbl.innerHTML = rows;
+</script>
+</body>
+</html>
