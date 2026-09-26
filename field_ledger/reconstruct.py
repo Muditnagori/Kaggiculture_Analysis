@@ -146,8 +146,10 @@ def reconstruct_player(replay: dict, player_index: int) -> list[StepRecord]:
     steps = replay["steps"]
     records: list[StepRecord] = []
 
-    for i, step in enumerate(steps):
-        entry = step[player_index]
+    # Shift by 1: actions at steps[k] are taken for game step t = k - 1
+    for k in range(1, len(steps)):
+        t = k - 1
+        entry = steps[k][player_index]
         obs = entry["observation"]
         action = entry["action"]
 
@@ -193,8 +195,8 @@ def reconstruct_player(replay: dict, player_index: int) -> list[StepRecord]:
 
         records.append(
             StepRecord(
-                step=i,
-                day=i // 24,
+                step=t,
+                day=t // 24,
                 cash=cash,
                 shed_value=shed_value,
                 growing_value=growing_value,

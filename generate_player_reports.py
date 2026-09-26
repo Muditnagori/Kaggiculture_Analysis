@@ -34,6 +34,25 @@ if str(REPO_ROOT) not in sys.path:
 from field_ledger.reconstruct import StepRecord, reconstruct_match, team_names
 from field_ledger.analytics import totals_by_category, match_summary
 from route_catalog.fingerprint import canonical_action_string, significant_action_string, hash_strings
+from strategy_decoder import (
+    DecodedGame,
+    extract_decoded_game,
+    load_reference_routes,
+    decode_script_identification,
+    decode_route_selection,
+    decode_script_overlays,
+    decode_invariants,
+    decode_field_and_labor,
+    decode_selling_and_market,
+    decode_opponent_interaction,
+    decode_eras_and_outcomes,
+    export_strategy_artifacts,
+    render_extended_section_6,
+    render_extended_section_9,
+    render_section_11,
+    render_section_12,
+    render_section_13,
+)
 
 WINDOW_LEN = 72  # 3 days x 24 steps per shop-unlock window
 
@@ -135,17 +154,21 @@ def determine_player_seat(replay: dict, target_player_name: str, folder_hint: st
     return 0
 
 
-def analyze_single_replay(replay_path: Path, target_player_name: str, folder_hint: str) -> Optional[MatchAnalysisResult]:
-    """Processes a single replay JSON into a complete MatchAnalysisResult."""
+def analyze_single_replay(replay_path: Path, target_player_name: str, folder_hint: str) -> Tuple[Optional[MatchAnalysisResult], Optional[DecodedGame]]:
+    """Processes a single replay JSON into a complete MatchAnalysisResult and DecodedGame."""
     try:
         content = replay_path.read_text(encoding="utf-8")
         replay = json.loads(content)
+        if not isinstance(replay, dict):
+            return None, None
     except Exception:
-        return None
+        return None, None
 
     steps = replay.get("steps", [])
     if not steps or len(steps) < 2:
-        return None
+        return None, None
+
+    decoded_game = extract_decoded_game(replay, replay_path.name, target_player_name, folder_hint)
 
     n_players = len(steps[0])
     player_idx = determine_player_seat(replay, target_player_name, folder_hint)
@@ -160,7 +183,7 @@ def analyze_single_replay(replay_path: Path, target_player_name: str, folder_hin
         p_records = match_ledger[player_idx]
         o_records = match_ledger[opp_idx]
     except Exception:
-        return None
+        return None, decoded_game
 
     summary = match_summary(p_records, o_records)
     p_reward = summary["final_projected_us"]
@@ -195,9 +218,10 @@ def analyze_single_replay(replay_path: Path, target_player_name: str, folder_hin
     opening_hired = 0
     opening_pastures = 0
 
-    first_window_steps = min(72, len(steps))
+    first_window_steps = min(72, len(steps) - 1)
     for t in range(first_window_steps):
-        action = steps[t][player_idx].get("action", {})
+        k = t + 1
+        action = steps[k][player_idx].get("action", {})
         if not action:
             continue
 
@@ -276,9 +300,10 @@ def analyze_single_replay(replay_path: Path, target_player_name: str, folder_hin
     first_animal_step = None
     animal_spend_by_type: Dict[str, float] = defaultdict(float)
 
-    for t, step_data in enumerate(steps):
-        p_step = step_data[player_idx]
-        obs = p_step.get("observation", {})
+    for k in range(1, len(steps)):
+        t = k - 1
+        p_step = steps[k][player_idx]
+        obs = steps[t][player_idx].get("observation", {})
         farms = obs.get("farms", [])
         if player_idx < len(farms):
             quads = farms[player_idx].get("unlocked_quadrants", [])
@@ -367,8 +392,8 @@ def analyze_single_replay(replay_path: Path, target_player_name: str, folder_hin
     # Route Candidate Slicing across all window lengths (up to 720 steps / 10 windows)
     canonical_per_step = []
     loose_per_step = []
-    for step in steps:
-        act = step[player_idx].get("action", {})
+    for k in range(1, len(steps)):
+        act = steps[k][player_idx].get("action", {})
         canonical_per_step.append(canonical_action_string(act))
         loose_per_step.append(significant_action_string(act))
 
@@ -385,7 +410,7 @@ def analyze_single_replay(replay_path: Path, target_player_name: str, folder_hin
 
     ep_id = str(replay.get("id") or replay_path.stem)
 
-    return MatchAnalysisResult(
+    analysis_res = MatchAnalysisResult(
         episode_id=ep_id,
         file_name=replay_path.name,
         player_name=p_name,
@@ -439,39 +464,88 @@ def analyze_single_replay(replay_path: Path, target_player_name: str, folder_hin
         peak_revenue_day=peak_revenue_day,
         peak_revenue_amount=peak_revenue_amount,
     )
+    return analysis_res, decoded_game
 
 
-def process_player_folder(folder_path: Path, max_workers: int = 4) -> Tuple[str, List[MatchAnalysisResult]]:
+def process_player_folder(folder_path: Path, max_workers: int = 4) -> Tuple[str, List[MatchAnalysisResult], List[DecodedGame]]:
     """Analyzes all replay JSON files in a player folder."""
-    replays = sorted(folder_path.glob("*.json"))
+    replays = sorted([
+        f for f in folder_path.glob("*.json")
+        if not f.name.startswith(f"{folder_path.name}_") and not f.name.endswith(("_clusters.json", "_investments.json"))
+    ])
     if not replays:
-        return folder_path.name, []
+        return folder_path.name, [], []
 
     folder_name = folder_path.name
     player_name = folder_name.split("_", 1)[1] if "_" in folder_name else folder_name
 
     results: List[MatchAnalysisResult] = []
-    with concurrent.futures.ProcessPoolExecutor(max_workers=max_workers) as executor:
+    decoded_games: List[DecodedGame] = []
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
         futures = {
             executor.submit(analyze_single_replay, rep_path, player_name, folder_name): rep_path
             for rep_path in replays
         }
         for future in concurrent.futures.as_completed(futures):
-            res = future.result()
+            res, dgame = future.result()
             if res:
                 results.append(res)
+            if dgame:
+                decoded_games.append(dgame)
 
     results.sort(key=lambda r: r.episode_id)
-    return folder_name, results
+    decoded_games.sort(key=lambda g: g.episode_id)
+    return folder_name, results, decoded_games
 
 
-def format_player_text_report(folder_name: str, results: List[MatchAnalysisResult]) -> str:
+def format_player_text_report(
+    folder_name: str,
+    results: List[MatchAnalysisResult],
+    decoded_games: Optional[List[DecodedGame]] = None,
+    out_dir: Optional[Path] = None,
+) -> str:
     """Renders a comprehensive, beautifully structured ASCII text report."""
     if not results:
         return f"===============================================================================\nPLAYER ANALYSIS REPORT: {folder_name}\n===============================================================================\nNo valid match replays found in folder.\n"
 
     player_name = results[0].player_name or (folder_name.split("_", 1)[1] if "_" in folder_name else folder_name)
     total_matches = len(results)
+
+    # Strategy Decoder Execution
+    script_res = None
+    route_res = None
+    overlay_res = None
+    inv_res = None
+    field_res = None
+    selling_res = None
+    opp_res = None
+    era_res = None
+
+    if decoded_games:
+        ref_routes, ref_msg = load_reference_routes()
+        script_res = decode_script_identification(decoded_games, ref_routes)
+        route_res = decode_route_selection(decoded_games, script_res)
+        overlay_res = decode_script_overlays(decoded_games, script_res)
+        inv_res = decode_invariants(decoded_games, script_res)
+        field_res = decode_field_and_labor(decoded_games)
+        selling_res = decode_selling_and_market(decoded_games, script_res)
+        opp_res = decode_opponent_interaction(decoded_games)
+        era_res = decode_eras_and_outcomes(decoded_games, script_res)
+
+        if out_dir:
+            export_strategy_artifacts(
+                out_dir=out_dir,
+                player_prefix=folder_name,
+                script_res=script_res,
+                route_res=route_res,
+                overlay_res=overlay_res,
+                selling_res=selling_res,
+                field_res=field_res,
+                opp_res=opp_res,
+                era_res=era_res,
+                inv_res=inv_res,
+            )
 
     # 1. Match Win / Loss Statistics
     wins = sum(1 for r in results if r.result == "WIN")
@@ -596,7 +670,6 @@ def format_player_text_report(folder_name: str, results: List[MatchAnalysisResul
     if animal_rev_pct > 50.0:
         archetype = "RANCHING & LIVESTOCK HEAVY (Dominant revenue from Cows/Pastures/Wool/Milk)"
     else:
-        # Check single crop dominance
         crop_revenues = {k: v for k, v in all_rev_cats.items() if k not in animal_prods}
         top_crop, top_crop_val = max(crop_revenues.items(), key=lambda x: x[1]) if crop_revenues else ("NONE", 0.0)
         top_crop_pct = (top_crop_val / crop_rev_total * 100.0) if crop_rev_total > 0 else 0.0
@@ -825,6 +898,8 @@ def format_player_text_report(folder_name: str, results: List[MatchAnalysisResul
         f"Day 30: {avg_hands_d30:.1f} hands"
     )
     lines.append("")
+    if field_res:
+        lines.extend(render_extended_section_6(field_res))
 
     # Section 7: Opening Strategy (Extractor)
     lines.append("-" * 80)
@@ -887,7 +962,7 @@ def format_player_text_report(folder_name: str, results: List[MatchAnalysisResul
         lines.append(f"  {w3:<50} {count:>7}    {w_pct:>6.1f}% ({w_wins}/{count})")
     lines.append("")
 
-    # Section 9: Route & Scripting Patterns (route_catalog)
+    # Section 9: Route & Scripting Patterns (route_catalog & strategy_decoder)
     lines.append("-" * 80)
     lines.append("9. ROUTE & SCRIPTING PATTERNS (route_catalog)")
     lines.append("-" * 80)
@@ -903,41 +978,28 @@ def format_player_text_report(folder_name: str, results: List[MatchAnalysisResul
     else:
         lines.append("  * Longest Reused Action Route: No multi-match identical route segments found")
 
-    # 3 Key Game Phases
-    p1_strict = strict_by_horizon[(0, 2)]
-    p1_top_strict = p1_strict.most_common(1)[0][1] if p1_strict else 0
-    p1_pct = (p1_top_strict / total_matches * 100.0) if total_matches > 0 else 0.0
-    p1_loose = loose_by_horizon[(0, 2)]
-    p1_top_loose = p1_loose.most_common(1)[0][1] if p1_loose else 0
-    p1_loose_pct = (p1_top_loose / total_matches * 100.0) if total_matches > 0 else 0.0
+    phases = [
+        (0, 1, "Phase 1: Steps 0-71   (Days 1-3)   - Pre-Shop Opening"),
+        (1, 1, "Phase 2: Steps 72-143  (Days 4-6)   - Shop 1 Reveal & Initial Orders"),
+        (2, 1, "Phase 3: Steps 144-215 (Days 7-9)   - Shop 2 Reveal & Branching"),
+        (3, 4, "Phase 4: Steps 216-503 (Days 10-21) - Mid-Game Production Engine"),
+        (7, 2, "Phase 5: Steps 504-647 (Days 22-27) - Late-Game Harvest & Saturation"),
+        (9, 1, "Phase 6: Steps 648-719 (Days 28-30) - Terminal Liquidation & End"),
+    ]
 
-    p2_strict = strict_by_horizon[(2, 7)]
-    p2_top_strict = p2_strict.most_common(1)[0][1] if p2_strict else 0
-    p2_pct = (p2_top_strict / total_matches * 100.0) if total_matches > 0 else 0.0
-    p2_loose = loose_by_horizon[(2, 7)]
-    p2_top_loose = p2_loose.most_common(1)[0][1] if p2_loose else 0
-    p2_loose_pct = (p2_top_loose / total_matches * 100.0) if total_matches > 0 else 0.0
-
-    p3_strict = strict_by_horizon[(9, 1)]
-    p3_top_strict = p3_strict.most_common(1)[0][1] if p3_strict else 0
-    p3_pct = (p3_top_strict / total_matches * 100.0) if total_matches > 0 else 0.0
-    p3_loose = loose_by_horizon[(9, 1)]
-    p3_top_loose = p3_loose.most_common(1)[0][1] if p3_loose else 0
-    p3_loose_pct = (p3_top_loose / total_matches * 100.0) if total_matches > 0 else 0.0
-
-    lines.append(f"  * 1. Steps 0–143 (days 0–5):   {p1_pct:>5.1f}% top exact match ({p1_top_strict:>3}/{total_matches}) | {len(p1_strict):>3} unique scripts | {p1_loose_pct:>5.1f}% top macro match")
-    lines.append(f"  * 2. Step 144-648 (day 6-27):  {p2_pct:>5.1f}% top exact match ({p2_top_strict:>3}/{total_matches}) | {len(p2_strict):>3} unique scripts | {p2_loose_pct:>5.1f}% top macro match")
-    lines.append(f"  * 3. Step 649-720 (last step): {p3_pct:>5.1f}% top exact match ({p3_top_strict:>3}/{total_matches}) | {len(p3_strict):>3} unique scripts | {p3_loose_pct:>5.1f}% top macro match")
+    for start_w, len_w, label in phases:
+        strict_c = strict_by_horizon[(start_w, len_w)]
+        loose_c = loose_by_horizon[(start_w, len_w)]
+        top_s = strict_c.most_common(1)[0][1] if strict_c else 0
+        top_s_pct = (top_s / total_matches * 100.0) if total_matches > 0 else 0.0
+        top_l = loose_c.most_common(1)[0][1] if loose_c else 0
+        top_l_pct = (top_l / total_matches * 100.0) if total_matches > 0 else 0.0
+        lines.append(f"  * {label}: {top_s_pct:>5.1f}% top exact ({top_s:>3}/{total_matches}) | {len(strict_c):>3} unique scripts | {top_l_pct:>5.1f}% macro match")
 
     lines.append("")
-    lines.append("  [Key Phase Segmentation (Route Consistency)]")
-    lines.append("  " + f"{'Phase / Step Range (Days)':<48} {'Unique Scripts':<16} {'Top Exact Match':<16} {'Top Macro Match':<16}")
-    lines.append("  " + "-" * 96)
-    phases = [
-        (0, 2, "1. Steps 0-143   (Days 0-5)   - Pre-Shop & Shop 1"),
-        (2, 7, "2. Steps 144-648 (Days 6-27)  - Mid-Game Core Engine"),
-        (9, 1, "3. Steps 649-720 (Days 28-30) - End-Game / Last Step"),
-    ]
+    lines.append("  [Key Phase Segmentation (Route Consistency Across 6 Lifecycle Stages)]")
+    lines.append("  " + f"{'Phase / Step Range (Days)':<50} {'Unique Scripts':<16} {'Top Exact Match':<16} {'Top Macro Match':<16}")
+    lines.append("  " + "-" * 98)
     for start_w, len_w, label in phases:
         strict_c = strict_by_horizon[(start_w, len_w)]
         loose_c = loose_by_horizon[(start_w, len_w)]
@@ -947,34 +1009,59 @@ def format_player_text_report(folder_name: str, results: List[MatchAnalysisResul
         top_loose_occ = loose_c.most_common(1)[0][1] if loose_c else 0
         top_loose_pct = (top_loose_occ / total_matches * 100.0) if total_matches > 0 else 0.0
         lines.append(
-            f"  {label:<48} {unique_strict:>7} variants  "
+            f"  {label:<50} {unique_strict:>7} variants  "
             f"{top_strict_pct:>5.1f}% ({top_strict_occ:>3}/{total_matches})  "
             f"{top_loose_pct:>5.1f}% ({top_loose_occ:>3}/{total_matches})"
         )
 
     lines.append("")
-    lines.append("  [Cumulative Route Consistency Across Horizons (Days 1 to N)]")
-    lines.append("  " + f"{'Horizon / Time Window':<48} {'Unique Scripts':<16} {'Top Exact Match':<16} {'Top Macro Match':<16}")
-    lines.append("  " + "-" * 96)
+    lines.append("  [Multi-Horizon Route Consistency by Strategic Milestone]")
 
-    for len_w, label in key_horizons:
-        strict_c = strict_by_horizon[(0, len_w)]
-        loose_c = loose_by_horizon[(0, len_w)]
+    horizon_groups = [
+        ("Anchor A: From Match Start (Day 1 / Cumulative Horizons)", [
+            (0, 1, "Days 1-3   (Steps 0-71 / 1 window ) - Pre-Shop Opening"),
+            (0, 2, "Days 1-6   (Steps 0-143 / 2 windows) - Shop 1 Revealed"),
+            (0, 3, "Days 1-9   (Steps 0-215 / 3 windows) - Shop 2 Revealed"),
+            (0, 5, "Days 1-15  (Steps 0-359 / 5 windows) - Halfway Mid-Match"),
+            (0, 7, "Days 1-21  (Steps 0-503 / 7 windows) - Core Production Cycle"),
+            (0, 10, "Days 1-30  (Steps 0-719 / 10 win)   - Full Match Playbook"),
+        ]),
+        ("Anchor B: From 1st Shop Reveal (Days 4 & 7 Horizons)", [
+            (1, 1, "Days 4-6   (Steps 72-143 / 1 window ) - Shop 1 Immediate Window"),
+            (1, 4, "Days 4-15  (Steps 72-359 / 4 windows) - Shop 1 to Mid-Match"),
+            (1, 9, "Days 4-30  (Steps 72-719 / 9 windows) - Shop 1 to Match End"),
+            (2, 3, "Days 7-15  (Steps 144-359 / 3 windows) - Shop 2 Reveal to Mid-Match"),
+            (2, 8, "Days 7-30  (Steps 144-719 / 8 windows) - Shop 2 Reveal to Match End"),
+        ]),
+        ("Anchor C: From 2nd Shop Reveal & Mid-Game (Day 10 Horizons)", [
+            (3, 3, "Days 10-18 (Steps 216-431 / 3 windows) - Post-Shop 2 Production Engine"),
+            (3, 7, "Days 10-30 (Steps 216-719 / 7 windows) - Post-Shop 2 to Match End"),
+            (6, 4, "Days 19-30 (Steps 432-719 / 4 windows) - Late Match Final Third"),
+        ]),
+    ]
 
-        unique_strict = len(strict_c)
-        top_strict_occ = strict_c.most_common(1)[0][1] if strict_c else 0
-        top_strict_pct = (top_strict_occ / total_matches * 100.0) if total_matches > 0 else 0.0
+    for grp_title, horizons in horizon_groups:
+        lines.append(f"    * {grp_title}")
+        lines.append("      " + f"{'Horizon / Time Window':<48} {'Unique Scripts':<16} {'Top Exact Match':<16} {'Top Macro Match':<16}")
+        lines.append("      " + "-" * 96)
+        for start_w, len_w, label in horizons:
+            strict_c = strict_by_horizon[(start_w, len_w)]
+            loose_c = loose_by_horizon[(start_w, len_w)]
+            unique_strict = len(strict_c)
+            top_strict_occ = strict_c.most_common(1)[0][1] if strict_c else 0
+            top_strict_pct = (top_strict_occ / total_matches * 100.0) if total_matches > 0 else 0.0
+            top_loose_occ = loose_c.most_common(1)[0][1] if loose_c else 0
+            top_loose_pct = (top_loose_occ / total_matches * 100.0) if total_matches > 0 else 0.0
+            lines.append(
+                f"      {label:<48} {unique_strict:>7} variants  "
+                f"{top_strict_pct:>5.1f}% ({top_strict_occ:>3}/{total_matches})  "
+                f"{top_loose_pct:>5.1f}% ({top_loose_occ:>3}/{total_matches})"
+            )
+        lines.append("")
 
-        top_loose_occ = loose_c.most_common(1)[0][1] if loose_c else 0
-        top_loose_pct = (top_loose_occ / total_matches * 100.0) if total_matches > 0 else 0.0
-
-        lines.append(
-            f"  {label:<48} {unique_strict:>7} variants  "
-            f"{top_strict_pct:>5.1f}% ({top_strict_occ:>3}/{total_matches})  "
-            f"{top_loose_pct:>5.1f}% ({top_loose_occ:>3}/{total_matches})"
-        )
-
-    lines.append("")
+    # Strategy Decoder Section 9 Sub-blocks (A, B, C, H)
+    if script_res and route_res and overlay_res and inv_res:
+        lines.extend(render_extended_section_9(script_res, route_res, overlay_res, inv_res, total_matches))
 
     # Section 10: Match-by-Match Log
     lines.append("-" * 80)
@@ -991,6 +1078,19 @@ def format_player_text_report(folder_name: str, results: List[MatchAnalysisResul
         )
 
     lines.append("")
+
+    # Section 11: Selling Pattern & Market Trading Moves
+    if selling_res:
+        lines.extend(render_section_11(selling_res))
+
+    # Section 12: Opponent Interaction
+    if opp_res:
+        lines.extend(render_section_12(opp_res))
+
+    # Section 13: Eras & Outcomes
+    if era_res:
+        lines.extend(render_section_13(era_res))
+
     lines.append("=" * 80)
     lines.append("  END OF REPORT")
     lines.append("=" * 80)
@@ -1011,7 +1111,7 @@ def run():
         "--player",
         type=str,
         default=None,
-        help="Specific player folder name (e.g. '01_DSM') or 'all' to process all players (default: all)",
+        help="Specific player folder name (e.g. '01_Boey', 'Boey') or 'all' to process all players (default: all)",
     )
     parser.add_argument(
         "--out-dir",
@@ -1044,9 +1144,10 @@ def run():
     for p_folder in player_folders:
         t0 = time.time()
         print(f"Processing player: {p_folder.name} ...", end=" ", flush=True)
-        folder_name, results = process_player_folder(p_folder, max_workers=args.workers)
+        folder_name, results, decoded_games = process_player_folder(p_folder, max_workers=args.workers)
         
-        report_text = format_player_text_report(folder_name, results)
+        target_out_dir = args.out_dir if args.out_dir else p_folder
+        report_text = format_player_text_report(folder_name, results, decoded_games=decoded_games, out_dir=target_out_dir)
 
         if args.out_dir:
             args.out_dir.mkdir(parents=True, exist_ok=True)
