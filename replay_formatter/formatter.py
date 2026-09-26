@@ -1102,7 +1102,7 @@ def main():
     parser.add_argument(
         "--input",
         "-i",
-        default="../Downloader/downloads/kaggriculture",
+        default="../replay_downloader/downloads/kaggriculture",
         help="Input folder containing player subfolders with replay JSONs",
     )
     parser.add_argument(
@@ -1164,10 +1164,10 @@ def main():
     in_dir = Path(args.input)
     if not in_dir.exists():
         candidates = [
-            Path("../Downloader/downloads/kaggriculture"),
+            Path("../replay_downloader/downloads/kaggriculture"),
             Path("downloads/kaggriculture"),
-            Path("../../Downloader/downloads/kaggriculture"),
-            Path("B:/Replicator/Downloader/downloads/kaggriculture"),
+            Path("../../replay_downloader/downloads/kaggriculture"),
+            Path("B:/Kaggle/replay_downloader/downloads/kaggriculture"),
         ]
         for c in candidates:
             if c.exists():

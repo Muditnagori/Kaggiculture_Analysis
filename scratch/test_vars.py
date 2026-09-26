@@ -6,7 +6,7 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO_ROOT))
 from field_ledger.reconstruct import reconstruct_match
 
-rep = json.loads(Path("Kaggiculture_Analysis/Downloader/downloads/kaggriculture/01_DSM/112477863.json").read_text(encoding="utf-8"))
+rep = json.loads(Path("Kaggiculture_Analysis/replay_downloader/downloads/kaggriculture/01_DSM/112477863.json").read_text(encoding="utf-8"))
 match = reconstruct_match(rep)
 p_records = match[0]
 

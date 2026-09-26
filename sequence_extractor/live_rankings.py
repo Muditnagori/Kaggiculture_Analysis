@@ -1,6 +1,6 @@
 """Live Leaderboard Ranking Sync for Extractor.
 
-Connects to Kaggle via Downloader/auth.json and client.py, fetches real-time
+Connects to Kaggle via replay_downloader/auth.json and client.py, fetches real-time
 competition leaderboard rankings for Kaggriculture, and maintains overlap-free
 player ranks for sequence move extraction.
 """
@@ -39,11 +39,11 @@ def safe_console_str(text: Any) -> str:
 def find_auth_file() -> Optional[Path]:
     """Locates auth.json in standard workspace locations."""
     candidates = [
-        Path("../Downloader/auth.json"),
-        Path("Downloader/auth.json"),
-        Path("../../Downloader/auth.json"),
-        Path("B:/Replicator/Downloader/auth.json"),
-        Path("b:/Replicator/Downloader/auth.json"),
+        Path("../replay_downloader/auth.json"),
+        Path("replay_downloader/auth.json"),
+        Path("../../replay_downloader/auth.json"),
+        Path("B:/Kaggle/replay_downloader/auth.json"),
+        Path("b:/Kaggle/replay_downloader/auth.json"),
     ]
     for c in candidates:
         if c.exists():
@@ -54,12 +54,12 @@ def find_auth_file() -> Optional[Path]:
 def find_rankings_file() -> Optional[Path]:
     """Locates rankings.parquet in standard workspace locations."""
     candidates = [
-        Path("../Formatter2/formatted_data/rankings.parquet"),
-        Path("Formatter2/formatted_data/rankings.parquet"),
-        Path("B:/Replicator/Formatter2/formatted_data/rankings.parquet"),
+        Path("../replay_formatter/formatted_data/rankings.parquet"),
+        Path("replay_formatter/formatted_data/rankings.parquet"),
+        Path("B:/Kaggle/replay_formatter/formatted_data/rankings.parquet"),
         Path("../F2/formatted_data/rankings.parquet"),
         Path("F2/formatted_data/rankings.parquet"),
-        Path("B:/Replicator/F2/formatted_data/rankings.parquet"),
+        Path("B:/Kaggle/F2/formatted_data/rankings.parquet"),
     ]
     for c in candidates:
         if c.exists():
@@ -79,7 +79,7 @@ def fetch_live_ranks(
         auth_file = find_auth_file()
 
     if not auth_file or not auth_file.exists():
-        return None, f"auth.json not found (checked ../Downloader/auth.json)"
+        return None, f"auth.json not found (checked ../replay_downloader/auth.json)"
 
     downloader_dir = auth_file.parent
     if str(downloader_dir.resolve()) not in sys.path:
@@ -227,7 +227,7 @@ def main():
         "--rankings-path",
         "-r",
         default=None,
-        help="Path to rankings.parquet (default: auto-detected in Formatter2/formatted_data)",
+        help="Path to rankings.parquet (default: auto-detected in replay_formatter/formatted_data)",
     )
     parser.add_argument(
         "--comp-id",
@@ -239,7 +239,7 @@ def main():
 
     r_path = Path(args.rankings_path) if args.rankings_path else find_rankings_file()
     if not r_path or not r_path.exists():
-        print(f"[!] Error: rankings.parquet not found. Checked standard Formatter2 paths.", flush=True)
+        print(f"[!] Error: rankings.parquet not found. Checked standard replay_formatter paths.", flush=True)
         sys.exit(1)
 
     print("=" * 70, flush=True)

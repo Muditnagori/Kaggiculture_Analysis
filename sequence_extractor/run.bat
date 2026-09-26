@@ -3,9 +3,9 @@ setlocal enabledelayedexpansion
 cd /d "%~dp0"
 title Shop Sequence Move Extractor - Multi-Source Edition
 
-:: Default input source: Formatter2 Consolidated Parquet
-if "%INPUT_DIR%"=="" set "INPUT_DIR=..\Formatter2\formatted_data"
-if "%INPUT_LABEL%"=="" set "INPUT_LABEL=Formatter2 Consolidated Parquet (..\Formatter2\formatted_data)"
+:: Default input source: replay_formatter Consolidated Parquet
+if "%INPUT_DIR%"=="" set "INPUT_DIR=..\replay_formatter\formatted_data"
+if "%INPUT_LABEL%"=="" set "INPUT_LABEL=replay_formatter Consolidated Parquet (..\replay_formatter\formatted_data)"
 
 :: Check if CLI arguments were passed directly
 if not "%~1"=="" (
@@ -39,7 +39,7 @@ echo   [2] Query Specific Sequence (e.g. PIZZA, ICE_CREAM)
 echo   [3] View Sequence Statistics
 echo   [4] View All Sequences Arranged by Most Frequent (Top 200)
 echo   [5] Sync Live Kaggle Leaderboard Rankings
-echo   [6] Switch Input Source (Toggle Formatter2 ^< - ^> Formatter)
+echo   [6] Switch Input Source (Toggle replay_formatter ^< - ^> Formatter)
 echo   [7] Exit
 echo.
 echo ==============================================================================
@@ -63,17 +63,17 @@ echo.
 echo ==============================================================================
 echo                            SELECT INPUT SOURCE
 echo ==============================================================================
-echo   [1] Formatter2 Consolidated Parquet (..\Formatter2\formatted_data) [Recommended]
-echo   [2] Formatter Outputs (..\Formatter\outputs) - 42 Top Players
+echo   [1] replay_formatter Consolidated Parquet (..\replay_formatter\formatted_data) [Recommended]
+echo   [2] Formatter Outputs (..\replay_formatter\outputs) - 42 Top Players
 echo.
 set /p src_choice="Select source (1 or 2): "
 if "%src_choice%"=="1" (
-    set "INPUT_DIR=..\Formatter2\formatted_data"
-    set "INPUT_LABEL=Formatter2 Consolidated Parquet (..\Formatter2\formatted_data)"
-    echo [OK] Active input source switched to Formatter2.
+    set "INPUT_DIR=..\replay_formatter\formatted_data"
+    set "INPUT_LABEL=replay_formatter Consolidated Parquet (..\replay_formatter\formatted_data)"
+    echo [OK] Active input source switched to replay_formatter.
 ) else if "%src_choice%"=="2" (
-    set "INPUT_DIR=..\Formatter\outputs"
-    set "INPUT_LABEL=Formatter Outputs (..\Formatter\outputs)"
+    set "INPUT_DIR=..\replay_formatter\outputs"
+    set "INPUT_LABEL=Formatter Outputs (..\replay_formatter\outputs)"
     echo [OK] Active input source switched to Formatter.
 ) else (
     echo [!] Invalid selection. Keeping current source.

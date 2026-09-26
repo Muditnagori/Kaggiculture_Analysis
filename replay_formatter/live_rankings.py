@@ -1,6 +1,6 @@
 """Live Leaderboard Ranking Sync for F2.
 
-Connects to Kaggle via Downloader/auth.json and client.py, fetches real-time
+Connects to Kaggle via replay_downloader/auth.json and client.py, fetches real-time
 competition leaderboard rankings for Kaggriculture, and updates rankings.parquet
 with zero rank overlaps.
 """
@@ -38,11 +38,11 @@ def safe_console_str(text: Any) -> str:
 def find_auth_file() -> Optional[Path]:
     """Locates auth.json in standard workspace locations."""
     candidates = [
-        Path("../Downloader/auth.json"),
-        Path("Downloader/auth.json"),
-        Path("../../Downloader/auth.json"),
-        Path("B:/Replicator/Downloader/auth.json"),
-        Path("b:/Replicator/Downloader/auth.json"),
+        Path("../replay_downloader/auth.json"),
+        Path("replay_downloader/auth.json"),
+        Path("../../replay_downloader/auth.json"),
+        Path("B:/Kaggle/replay_downloader/auth.json"),
+        Path("b:/Kaggle/replay_downloader/auth.json"),
     ]
     for c in candidates:
         if c.exists():
@@ -62,7 +62,7 @@ def fetch_live_ranks(
         auth_file = find_auth_file()
 
     if not auth_file or not auth_file.exists():
-        return None, f"auth.json not found (checked ../Downloader/auth.json)"
+        return None, f"auth.json not found (checked ../replay_downloader/auth.json)"
 
     downloader_dir = auth_file.parent
     if str(downloader_dir.resolve()) not in sys.path:

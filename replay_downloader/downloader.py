@@ -215,7 +215,7 @@ def sync_existing_player_folders(comp_dir: Path, leaderboard: list[dict[str, Any
                 d.rename(target_dir)
 
             # Also rename output file in Formatter if present ('do not delete anything')
-            formatter_base = BASE_DIR.parent / "Formatter" / "outputs"
+            formatter_base = BASE_DIR.parent / "replay_formatter" / "outputs"
             if formatter_base.exists():
                 for pf in formatter_base.glob("*_moves.parquet"):
                     m_pf = re.match(r"^(\d+)[_\s-]+(.*)_moves\.parquet$", pf.name)
@@ -261,6 +261,8 @@ class K2Downloader:
         output_dir: Path | str = "downloads",
         auto_zip: bool = True,
         force: bool = False,
+        rank_start: int | None = None,
+        rank_end: int | None = None,
     ):
         self.competition_input = competition
         self.top_percentage = top_percentage
@@ -272,6 +274,9 @@ class K2Downloader:
         self.output_base = Path(output_dir).resolve()
         self.auto_zip = auto_zip
         self.force = force
+        # Rank-range mode: download only players whose rank is in [rank_start, rank_end]
+        self.rank_start = rank_start
+        self.rank_end = rank_end
 
     async def run(self) -> dict[str, Any]:
         """Execute replay fetch and download pipeline."""
@@ -294,6 +299,10 @@ class K2Downloader:
         print(f"Target Competition : {self.competition_input}", flush=True)
         if self.player_name is not None:
             print(f"Player Target      : Specific player '{self.player_name}'", flush=True)
+        elif self.rank_start is not None or self.rank_end is not None:
+            r_lo = self.rank_start or 1
+            r_hi = self.rank_end or "end"
+            print(f"Player Target      : Rank range #{r_lo} to #{r_hi}", flush=True)
         elif self.num_players is not None:
             print(f"Player Target      : Top {self.num_players} players (explicit count)", flush=True)
         else:
@@ -321,13 +330,15 @@ class K2Downloader:
             for p in leaderboard:
                 p_name = (p.get("team_name") or "").strip().lower()
                 p_id = str(p.get("team_id") or "").strip().lower()
-                if query == p_name or query == p_id:
+                p_users = [u.lower() for u in p.get("usernames", [])]
+                if query == p_name or query == p_id or query in p_users:
                     matched = p
                     break
             if not matched:
                 for p in leaderboard:
                     p_name = (p.get("team_name") or "").strip().lower()
-                    if query in p_name:
+                    p_users = [u.lower() for u in p.get("usernames", [])]
+                    if query in p_name or any(query in u for u in p_users):
                         matched = p
                         break
             if not matched:
@@ -336,6 +347,14 @@ class K2Downloader:
             top_players = [matched]
             print(f"Total Teams on Leaderboard : {total_teams}", flush=True)
             print(f"Found Target Player        : Rank #{matched['rank']} - {matched['team_name']} (ID: {matched['team_id']})", flush=True)
+        elif self.rank_start is not None or self.rank_end is not None:
+            # Rank-range mode: select players whose rank falls within [rank_start, rank_end]
+            r_lo = max(1, self.rank_start or 1)
+            r_hi = min(total_teams, self.rank_end or total_teams)
+            top_players = [p for p in leaderboard if r_lo <= int(p["rank"]) <= r_hi]
+            print(f"Total Teams on Leaderboard : {total_teams}", flush=True)
+            print(f"Rank Range                 : #{r_lo} to #{r_hi}", flush=True)
+            print(f"Selected Players           : {len(top_players)} players", flush=True)
         elif self.num_players is not None:
             cutoff_rank = min(total_teams, max(1, self.num_players))
             top_players = leaderboard[:cutoff_rank]
@@ -360,8 +379,8 @@ class K2Downloader:
         # Index all existing files across output directory and sibling Formatter inputs
         search_paths = [
             self.output_base,
-            BASE_DIR.parent / "Formatter" / "inputs",
-            BASE_DIR.parent / "Formatter" / "input",
+            BASE_DIR.parent / "replay_formatter" / "inputs",
+            BASE_DIR.parent / "replay_formatter" / "input",
         ]
         cached_matches = find_all_cached_matches(search_paths)
         print(f"Existing cached matches found locally: {len(cached_matches)} files", flush=True)
@@ -528,6 +547,10 @@ class K2Downloader:
         if self.auto_zip and requested_files_for_zip:
             if self.player_name:
                 zip_file = self.output_base / f"{comp_slug}_{sanitize_filename(self.player_name)}_replays.zip"
+            elif self.rank_start is not None or self.rank_end is not None:
+                r_lo = self.rank_start or 1
+                r_hi = self.rank_end or total_teams
+                zip_file = self.output_base / f"{comp_slug}_rank{r_lo}_to_{r_hi}_replays.zip"
             else:
                 zip_file = self.output_base / f"{comp_slug}_top_replays.zip"
             print(f"\nPackaging requested {len(requested_files_for_zip)} replays into ZIP archive: {zip_file.name}...", flush=True)

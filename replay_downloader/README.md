@@ -15,8 +15,8 @@ Automated high-performance downloader for Kaggle simulation match replays, featu
 ### 2. Permanent Database Preservation (No Deletions Below Rank 20)
 - **Rule**: If a player's rank falls below rank 20 (e.g. dropped to rank #944):
   - Their replay database is **NEVER deleted**.
-  - Their folder in `Downloader/downloads/<competition>/` is automatically renamed to match their current live rank (e.g. `944_3정훈`), preserving all historical replays and match data.
-  - Corresponding output files in `Formatter/outputs/` are also automatically renamed to match.
+  - Their folder in `replay_downloader/downloads/<competition>/` is automatically renamed to match their current live rank (e.g. `944_3정훈`), preserving all historical replays and match data.
+  - Corresponding output files in `replay_formatter/outputs/` are also automatically renamed to match.
 
 ### 3. Match-Existence Caching & Fast Streaming
 - Scans existing local folders before downloading.
@@ -28,22 +28,22 @@ Automated high-performance downloader for Kaggle simulation match replays, featu
 ## 🚀 How to Run
 
 ### Interactive Menu:
-Double-click [`run.bat`](file:///a:/Kaggle/Replicator/Downloader/run.bat) or run:
+Double-click [`run.bat`](file:///b:/Kaggle/replay_downloader/run.bat) or run:
 ```powershell
-python Downloader/main.py
+python replay_downloader/main.py
 ```
 
 ### Command Line:
 ```powershell
 # Download Top 20 players and all their matches:
-python Downloader/main.py --top-20 --matches all --outcome all
+python replay_downloader/main.py --top-20 --matches all --outcome all
 
 # Download Top 5 players (or custom number) and all their matches:
-python Downloader/main.py --players 5 --matches all --outcome all
+python replay_downloader/main.py --players 5 --matches all --outcome all
 
 # Download Top 10% players:
-python Downloader/main.py --top-percent 10 --matches all
+python replay_downloader/main.py --top-percent 10 --matches all
 
 # Download matches for a specific player:
-python Downloader/main.py --username "player_name" --matches all
+python replay_downloader/main.py --username "player_name" --matches all
 ```

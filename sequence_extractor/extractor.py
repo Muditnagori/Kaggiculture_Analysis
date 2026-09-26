@@ -1,10 +1,10 @@
 """High-Performance Shop Sequence Move Extractor for Kaggriculture.
 
 Supports TWO input sources:
-1. Formatter2 Consolidated Parquet (B:/Replicator/Formatter2/formatted_data):
+1. replay_formatter Consolidated Parquet (B:/Kaggle/replay_formatter/formatted_data):
    - Consumes town.parquet, episodes.parquet, steps.parquet
    - Full match coverage across all players (34,714 unique sequences)
-2. Formatter Outputs (B:/Replicator/Formatter/outputs):
+2. Formatter Outputs (B:/Kaggle/replay_formatter/outputs):
    - Consumes shop_unlocked_sequence.parquet and *_moves.parquet
    - Covers 42 top player datasets
 
@@ -334,15 +334,15 @@ def detect_input_source(input_path: str | Path) -> tuple[str, Path]:
 
     candidates = [
         p,
-        Path("../Formatter2/formatted_data").resolve(),
-        Path("Formatter2/formatted_data").resolve(),
-        Path("B:/Replicator/Formatter2/formatted_data").resolve(),
+        Path("../replay_formatter/formatted_data").resolve(),
+        Path("replay_formatter/formatted_data").resolve(),
+        Path("B:/Kaggle/replay_formatter/formatted_data").resolve(),
         Path("../F2/formatted_data").resolve(),
         Path("F2/formatted_data").resolve(),
-        Path("B:/Replicator/F2/formatted_data").resolve(),
-        Path("../Formatter/outputs").resolve(),
-        Path("Formatter/outputs").resolve(),
-        Path("B:/Replicator/Formatter/outputs").resolve(),
+        Path("B:/Kaggle/F2/formatted_data").resolve(),
+        Path("../replay_formatter/outputs").resolve(),
+        Path("replay_formatter/outputs").resolve(),
+        Path("B:/Kaggle/replay_formatter/outputs").resolve(),
     ]
 
     for c in candidates:
@@ -363,7 +363,7 @@ def detect_input_source(input_path: str | Path) -> tuple[str, Path]:
 
 def run_f2_extraction(f2_path: Path, out_path: Path, sync_live: bool = True) -> bool:
     """
-    High-performance sequence extraction directly from Formatter2 consolidated Parquet datasets:
+    High-performance sequence extraction directly from replay_formatter consolidated Parquet datasets:
     - town.parquet: match shop sequences and unlock steps
     - episodes.parquet: match rewards, winner determination, player priority ranks
     - steps.parquet: per-step actions, rewards, timestamps
@@ -902,7 +902,7 @@ def run_formatter_extraction(formatter_path: Path, out_path: Path, sync_live: bo
 
 
 def run_sequence_extraction(
-    input_dir: str = "../Formatter2/formatted_data",
+    input_dir: str = "../replay_formatter/formatted_data",
     output_dir: str = ".",
     sync_live: bool = True,
 ) -> bool:
@@ -949,12 +949,12 @@ def count_unique_sequence_frequency(
         candidates.append(Path(input_source).resolve() / "shop_unlocked_sequence.parquet")
 
     candidates.extend([
-        Path("B:/Replicator/Formatter2/formatted_data/town.parquet"),
-        base / "../Formatter2/formatted_data/town.parquet",
-        Path("B:/Replicator/F2/formatted_data/town.parquet"),
+        Path("B:/Kaggle/replay_formatter/formatted_data/town.parquet"),
+        base / "../replay_formatter/formatted_data/town.parquet",
+        Path("B:/Kaggle/F2/formatted_data/town.parquet"),
         base / "../F2/formatted_data/town.parquet",
-        Path("B:/Replicator/Formatter/outputs/shop_unlocked_sequence.parquet"),
-        base / "../Formatter/outputs/shop_unlocked_sequence.parquet",
+        Path("B:/Kaggle/replay_formatter/outputs/shop_unlocked_sequence.parquet"),
+        base / "../replay_formatter/outputs/shop_unlocked_sequence.parquet",
     ])
 
     matched_src: Optional[Path] = None
@@ -1267,8 +1267,8 @@ if __name__ == "__main__":
     )
     parser.add_argument(
         "-i", "--input",
-        default="../Formatter2/formatted_data",
-        help="Input directory (default: ../Formatter2/formatted_data; also accepts ../Formatter/outputs)",
+        default="../replay_formatter/formatted_data",
+        help="Input directory (default: ../replay_formatter/formatted_data; also accepts ../replay_formatter/outputs)",
     )
     parser.add_argument(
         "-o", "--output",
@@ -1306,7 +1306,7 @@ if __name__ == "__main__":
         "--formatter2", "--f2",
         action="store_true",
         dest="formatter2",
-        help="Explicitly use Formatter2 consolidated Parquet datasets as input source",
+        help="Explicitly use replay_formatter consolidated Parquet datasets as input source",
     )
     parser.add_argument(
         "--formatter",
@@ -1322,9 +1322,9 @@ if __name__ == "__main__":
 
     input_src = args.input
     if args.formatter2:
-        input_src = "../Formatter2/formatted_data"
+        input_src = "../replay_formatter/formatted_data"
     elif args.formatter:
-        input_src = "../Formatter/outputs"
+        input_src = "../replay_formatter/outputs"
 
     if args.frequency:
         count_unique_sequence_frequency(

@@ -1,7 +1,7 @@
 import json
 from pathlib import Path
 
-rep = json.loads(Path("Kaggiculture_Analysis/Downloader/downloads/kaggriculture/01_DSM/112477863.json").read_text(encoding="utf-8"))
+rep = json.loads(Path("Kaggiculture_Analysis/replay_downloader/downloads/kaggriculture/01_DSM/112477863.json").read_text(encoding="utf-8"))
 for t in [0, 72, 144, 216, 500, 719]:
     obs = rep["steps"][t][0]["observation"]
     farm = obs["farms"][0]

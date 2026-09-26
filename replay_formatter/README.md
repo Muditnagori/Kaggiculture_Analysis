@@ -20,7 +20,7 @@ A fast, resilient, multi-core Python data-engineering pipeline that converts raw
 All datasets reside directly in `formatted_data/`:
 
 ```text
-B:/Replicator/F2/formatted_data/
+B:/Kaggle/F2/formatted_data/
 |-- rankings.parquet       (Master rankings table: rank, player_name, match_count)
 |-- source_files.parquet   (Audit log of all scanned JSON replays and parse status)
 |-- episodes.parquet       (1 row per replay: metadata, rules, scores, players, rank)
@@ -45,7 +45,7 @@ run.bat
 Or run Python directly:
 
 ```bash
-python formatter.py --input-folder "B:/Replicator/Downloader/downloads" --output-folder "formatted_data"
+python formatter.py --input-folder "B:/Kaggle/replay_downloader/downloads" --output-folder "formatted_data"
 ```
 
 ---
@@ -84,7 +84,7 @@ python formatter.py --top-players 3
 
 ### Output Files (`player_moves/`):
 ```text
-B:/Replicator/F2/player_moves/
+B:/Kaggle/F2/player_moves/
 |-- 01_Majkel1337_moves.parquet
 |-- 01_SpaTaro_moves.parquet
 `-- 02_Artem_The_Farmer_moves.parquet
@@ -106,3 +106,35 @@ B:/Replicator/F2/player_moves/
 - `match_result` (string: WIN, LOSS, TIE)
 - `source_file` (string)
 
+
+---
+
+## 6. Shop Sequence & Winning-Agent Moves Extractor (`parquet_extractor.py`, formerly `Formatter/`)
+
+The legacy `Formatter` module has been merged into this folder. It is a multi-process converter that parses raw replay JSONs into two flat Parquet outputs, and is still an input source for the `Extractor` (option `[2] Formatter Outputs`).
+
+### Inputs
+- **Default Input**: `../replay_downloader/downloads/kaggriculture/` (or `../replay_downloader/downloads/`, or `inputs/`)
+- Automatically discovers player groups (e.g. `01_Mengfei Li/`, `02_自己找差距/`, `05_SpaTaro/`).
+
+### Outputs (flat, in `outputs/`)
+1. **`shop_unlocked_sequence.parquet`**: chronological shop unlock sequence for **all matches across all players**.
+   - Columns: `episode_id`, `source_file`, `seed`, `team_0`, `team_1`, `reward_0`, `reward_1`, `winner`, `total_steps`, `num_shops_unlocked`, `sequence_string`, `shop_sequence`, `unlock_steps`, `unlock_days`, `unlock_hours`.
+2. **`<rank>_<name>_moves.parquet`** (e.g. `01_Mengfei Li_moves.parquet`): all steps, moves, inventories, shed goods, farm tiles, and market interactions of winning agents per player.
+   - **Dynamic Rank Synchronization**: when a player's rank changes (e.g. `02_3정훈` ➔ `04_3정훈`), the file is renamed to the current rank (also done by the Downloader).
+   - **Incremental Merge**: new rows are appended to existing tables, deduplicated by `episode_id`.
+   - **Data Preservation**: never deletes existing Parquet tables.
+
+### How to Run
+Interactive: `run.bat` → options **[5]** Extract (shop sequence + moves), **[6]** Single match winning agent, **[7]** Custom input/output paths.
+
+Command line:
+```bat
+:: via run.bat (passes remaining args to parquet_extractor.py)
+run.bat legacy ..\replay_downloader\downloads\kaggriculture -o outputs
+
+:: or directly from within replay_formatter
+python parquet_extractor.py ..\replay_downloader\downloads\kaggriculture -o outputs
+python parquet_extractor.py --match <replay.json or episode_id> -o outputs
+python parquet_extractor.py --clean-downloads   :: delete processed raw JSONs after success
+```

@@ -9,7 +9,7 @@ sys.path.insert(0, str(REPO_ROOT))
 from generate_player_reports import process_player_folder
 
 def main():
-    folder = Path("Kaggiculture_Analysis/Downloader/downloads/kaggriculture/01_Boey")
+    folder = Path("Kaggiculture_Analysis/replay_downloader/downloads/kaggriculture/01_Boey")
     folder_name, results = process_player_folder(folder, max_workers=6)
 
     matches = []

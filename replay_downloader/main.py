@@ -10,6 +10,9 @@ Usage examples:
     # Download Top 20 players and all their matches:
     python main.py --top-20 --matches all --outcome all
 
+    # Download players ranked 80 to 100 with 100 matches each:
+    python main.py --rank-start 80 --rank-end 100 --matches 100
+
     # Quick download using preset player count & settings from config.json:
     python main.py --quick
 
@@ -193,6 +196,52 @@ def interactive_player_download() -> None:
     asyncio.run(downloader.run())
 
 
+def interactive_rank_range_download() -> None:
+    """Prompt user for a rank range and matches count, then download replays."""
+    config = load_config()
+    print("\n" + "=" * 65, flush=True)
+    print("              RANK RANGE REPLAY DOWNLOAD", flush=True)
+    print("=" * 65 + "\n", flush=True)
+
+    comp = input(f"Enter competition slug or ID [default: {config.get('competition', 'kaggriculture')}]: ").strip()
+    if not comp:
+        comp = config.get("competition", "kaggriculture")
+
+    rank_start_str = input("Start rank (e.g. 80) [default: 1]: ").strip()
+    rank_start = int(rank_start_str) if rank_start_str.isdigit() else 1
+
+    rank_end_str = input("End rank   (e.g. 100) [default: 100]: ").strip()
+    rank_end = int(rank_end_str) if rank_end_str.isdigit() else 100
+
+    if rank_start > rank_end:
+        rank_start, rank_end = rank_end, rank_start
+        print(f"  (Swapped: downloading ranks #{rank_start} to #{rank_end})")
+
+    default_matches_lbl = format_matches_label(config.get("matches_per_player", -1))
+    matches_str = input(f"How many match replays per player (number or 'all') [default: {default_matches_lbl}]: ").strip()
+    matches_count = parse_matches(matches_str) if matches_str else parse_matches(config.get("matches_per_player", -1))
+
+    outcome = input(f"Filter outcome (all / win / lose / draw) [default: {config.get('outcome_filter', 'all')}]: ").strip().lower()
+    if outcome not in ("win", "all", "lose", "draw"):
+        outcome = config.get("outcome_filter", "all")
+
+    output_path = BASE_DIR / config.get("output_dir", "downloads")
+
+    downloader = K2Downloader(
+        competition=comp,
+        top_percentage=None,
+        num_players=None,
+        rank_start=rank_start,
+        rank_end=rank_end,
+        matches_per_player=matches_count,
+        outcome_filter=outcome,
+        batch_size=config.get("batch_size", 5),
+        output_dir=output_path,
+        auto_zip=config.get("auto_zip", True),
+    )
+    asyncio.run(downloader.run())
+
+
 def interactive_custom_download() -> None:
     """Prompt user for custom parameters on the fly."""
     config = load_config()
@@ -267,13 +316,14 @@ def interactive_menu():
         print(f"  3. Percentage Download      - Top {pct}% players ({matches_lbl} {outcome} matches each)", flush=True)
         print(f"  4. Specific Player          - Select player by username ({matches_lbl} {outcome} matches)", flush=True)
         print("  5. Custom Download          - Choose custom players, matches & competition", flush=True)
-        print("  6. Edit Settings            - Change % for Opt 3, players for Opt 1, matches", flush=True)
-        print("  7. View Download History    - Inspect recorded matches & seeds in database", flush=True)
-        print("  8. Kaggle Re-Login          - Open Chrome to log into your Kaggle account", flush=True)
-        print("  9. Exit                     - Close downloader", flush=True)
+        print("  6. Rank Range Download      - Download players by rank range (e.g. rank 80-100)", flush=True)
+        print("  7. Edit Settings            - Change % for Opt 3, players for Opt 1, matches", flush=True)
+        print("  8. View Download History    - Inspect recorded matches & seeds in database", flush=True)
+        print("  9. Kaggle Re-Login          - Open Chrome to log into your Kaggle account", flush=True)
+        print(" 10. Exit                     - Close downloader", flush=True)
         print("=" * 65, flush=True)
 
-        choice = input("Select an option [1-9, default 1]: ").strip()
+        choice = input("Select an option [1-10, default 1]: ").strip()
         if not choice:
             choice = "1"
 
@@ -331,19 +381,23 @@ def interactive_menu():
             break
 
         elif choice == "6":
-            interactive_edit_config()
+            interactive_rank_range_download()
+            break
 
         elif choice == "7":
-            show_download_history()
+            interactive_edit_config()
 
         elif choice == "8":
-            asyncio.run(interactive_login())
+            show_download_history()
 
         elif choice == "9":
+            asyncio.run(interactive_login())
+
+        elif choice == "10":
             print("\nExiting K2 Downloader. Goodbye!\n")
             break
         else:
-            print("Invalid selection. Please enter a number between 1 and 8.")
+            print("Invalid selection. Please enter a number between 1 and 10.")
 
 
 def main():
@@ -437,6 +491,22 @@ def main():
         help="View persistent download history registry statistics",
     )
     parser.add_argument(
+        "--rank-start",
+        "--rank_start",
+        dest="rank_start",
+        type=int,
+        default=None,
+        help="Start of rank range (inclusive). Use with --rank-end to download a specific rank window (e.g. --rank-start 80 --rank-end 100)",
+    )
+    parser.add_argument(
+        "--rank-end",
+        "--rank_end",
+        dest="rank_end",
+        type=int,
+        default=None,
+        help="End of rank range (inclusive). Use with --rank-start to download a specific rank window (e.g. --rank-start 80 --rank-end 100)",
+    )
+    parser.add_argument(
         "--force",
         action="store_true",
         help="Bypass download history check and force re-download of all matches",
@@ -460,8 +530,16 @@ def main():
     players_count = args.players
     top_pct = args.top_percent
     target_player = args.username
+    rank_start = args.rank_start
+    rank_end = args.rank_end
 
     if target_player:
+        top_pct = None
+        players_count = None
+        rank_start = None
+        rank_end = None
+    elif rank_start is not None or rank_end is not None:
+        # Rank-range mode takes priority over num_players and top_percent
         top_pct = None
         players_count = None
     elif args.top_20:
@@ -480,6 +558,8 @@ def main():
         top_percentage=top_pct,
         num_players=players_count,
         player_name=target_player,
+        rank_start=rank_start,
+        rank_end=rank_end,
         matches_per_player=args.matches,
         outcome_filter=args.outcome,
         batch_size=config.get("batch_size", 5),

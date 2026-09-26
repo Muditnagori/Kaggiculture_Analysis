@@ -16,6 +16,7 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Any
 
@@ -29,6 +30,42 @@ LIST_EPISODES_URL = "https://www.kaggle.com/api/i/competitions.EpisodeService/Li
 _SSL_CTX = ssl.create_default_context()
 _SSL_CTX.check_hostname = False
 _SSL_CTX.verify_mode = ssl.CERT_NONE
+
+
+def _fetch_leaderboard_pw(competition_id: int, auth_file: Path | None = None) -> dict[str, Any] | None:
+    """Fetch leaderboard using Playwright API client supporting modern HTTP/2 and TLS ALPN."""
+    try:
+        from playwright.sync_api import sync_playwright
+    except ImportError:
+        return None
+
+    try:
+        with sync_playwright() as pw:
+            kwargs: dict[str, Any] = {}
+            if auth_file and auth_file.exists() and auth_file.stat().st_size > 50:
+                try:
+                    kwargs["storage_state"] = str(auth_file)
+                except Exception:
+                    pass
+            context = pw.request.new_context(**kwargs)
+            resp = context.post(
+                GET_LEADERBOARD_URL,
+                data={
+                    "competitionId": competition_id,
+                    "leaderboardMode": "LEADERBOARD_MODE_DEFAULT",
+                },
+                headers={
+                    "Referer": f"https://www.kaggle.com/competitions/{competition_id}/leaderboard",
+                    "Accept": "application/json",
+                },
+                timeout=45000,
+            )
+            if resp.status == 200:
+                return resp.json()
+            logger.warning("Playwright GetLeaderboard returned status %s", resp.status)
+    except Exception as e:
+        logger.warning("Playwright GetLeaderboard error: %s", e)
+    return None
 
 
 class KaggleSession:
@@ -114,32 +151,68 @@ class KaggleSession:
         except Exception:
             pass
 
+        # Fallback to direct GetCompetition API service
+        try:
+            comp_url = "https://www.kaggle.com/api/i/competitions.CompetitionService/GetCompetition"
+            comp_payload = json.dumps({"competitionName": slug}).encode("utf-8")
+            comp_req = urllib.request.Request(
+                comp_url,
+                data=comp_payload,
+                headers=self._get_headers(is_json=True),
+                method="POST",
+            )
+            with urllib.request.urlopen(comp_req, context=_SSL_CTX, timeout=15) as resp:
+                comp_data = json.loads(resp.read().decode("utf-8"))
+                if comp_data.get("id"):
+                    return int(comp_data["id"]), slug
+        except Exception:
+            pass
+
         raise ValueError(f"Could not resolve Kaggle competition ID for '{slug}'")
 
     def fetch_leaderboard(self, competition_id: int) -> list[dict[str, Any]]:
-        """Fetch full leaderboard using direct API request."""
-        payload = json.dumps({"competitionId": competition_id}).encode("utf-8")
-        req = urllib.request.Request(
-            GET_LEADERBOARD_URL,
-            data=payload,
-            headers=self._get_headers(is_json=True),
-            method="POST",
-        )
+        """Fetch full leaderboard using Playwright API client (handles HTTP/2 & modern TLS) with urllib fallback."""
+        data = None
 
+        # 1. Primary method: Playwright API request in dedicated worker thread
         try:
-            with urllib.request.urlopen(req, context=_SSL_CTX, timeout=30) as resp:
-                data = json.loads(resp.read().decode("utf-8"))
+            with ThreadPoolExecutor(max_workers=1) as executor:
+                future = executor.submit(_fetch_leaderboard_pw, competition_id, self.auth_file)
+                data = future.result(timeout=60)
         except Exception as e:
-            logger.error("Failed to fetch leaderboard: %s", e)
-            return []
+            logger.debug("Playwright leaderboard fetch failed: %s", e)
+
+        # 2. Fallback method: urllib POST request with full headers & leaderboardMode
+        if not data:
+            payload = json.dumps({
+                "competitionId": competition_id,
+                "leaderboardMode": "LEADERBOARD_MODE_DEFAULT",
+            }).encode("utf-8")
+            headers = self._get_headers(is_json=True)
+            headers["Accept"] = "application/json"
+            headers["Referer"] = f"https://www.kaggle.com/competitions/{competition_id}/leaderboard"
+            req = urllib.request.Request(
+                GET_LEADERBOARD_URL,
+                data=payload,
+                headers=headers,
+                method="POST",
+            )
+            try:
+                with urllib.request.urlopen(req, context=_SSL_CTX, timeout=30) as resp:
+                    data = json.loads(resp.read().decode("utf-8"))
+            except Exception as e:
+                logger.error("Failed to fetch leaderboard: %s", e)
+                return []
 
         rows = data.get("publicLeaderboard") or []
-        teams = {str(t.get("teamId")): t.get("teamName") for t in data.get("teams", [])}
+        teams_raw = data.get("teams") or []
+        teams = {str(t.get("teamId")): t for t in teams_raw}
 
         normalized = []
         for i, row in enumerate(rows, start=1):
             team_id = str(row.get("teamId") or i)
-            team_name = teams.get(team_id) or f"Team_{team_id}"
+            t_info = teams.get(team_id) or {}
+            team_name = t_info.get("teamName") or f"Team_{team_id}"
             rank = int(row.get("rank") or i)
             score_val = row.get("displayScore")
             try:
@@ -148,6 +221,15 @@ class KaggleSession:
                 score = None
 
             sub_id = row.get("submissionId")
+
+            usernames: list[str] = []
+            leader = t_info.get("teamUpInfo", {}).get("teamLeader", {})
+            if leader.get("userName"):
+                usernames.append(leader["userName"].lower())
+            for m in t_info.get("teamMembers", []):
+                if m.get("userName"):
+                    usernames.append(m["userName"].lower())
+
             normalized.append({
                 "team_id": team_id,
                 "team_name": team_name,
@@ -155,6 +237,7 @@ class KaggleSession:
                 "score": score,
                 "best_submission_id": str(sub_id) if sub_id else None,
                 "medal": row.get("medal"),
+                "usernames": list(set(usernames)),
             })
 
         normalized.sort(key=lambda r: r["rank"])

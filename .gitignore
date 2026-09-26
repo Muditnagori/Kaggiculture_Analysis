@@ -1,42 +1,56 @@
 # ==============================================================================
-# SENSITIVE / CREDENTIALS / PRIVATE ACCOUNTS (NEVER UPLOAD!)
+# SENSITIVE / CREDENTIALS / LOGIN SESSIONS (NEVER UPLOAD!)
 # ==============================================================================
+# Kaggle login session (Playwright storage_state with cookies) -> replay_downloader/auth.json
 auth.json
 **/auth.json
 *auth*.json
+!**/auth.json.example
+*cookie*
+*session*.json
+storage_state*.json
+credentials.json
+token.json
+kaggle.json
 .env
 .env.*
 *.key
 *.pem
-credentials.json
-token.json
+# Personal identity / agent rules (contain account emails)
+.agents/
 
 # ==============================================================================
-# DATA / DOWNLOADS / REPLAYS / RAW FILES (DO NOT UPLOAD!)
+# HISTORY / DATABASES (NEVER UPLOAD!)
+# ==============================================================================
+# Persistent download history registry -> replay_downloader/download_history.db
+download_history.*
+*.db
+*.db-journal
+*.db-shm
+*.db-wal
+*.sqlite
+*.sqlite3
+
+# ==============================================================================
+# DATA / DOWNLOADS / REPLAYS / GENERATED OUTPUTS (DO NOT UPLOAD!)
 # ==============================================================================
 downloads/
 **/downloads/
-download_history.*
-*.db
-*.db-shm
-*.db-wal
+*.zip
 *.parquet
+*.csv
+*.json.gz
+*.tar.gz
 **/formatted_data/
 **/player_moves/
 **/outputs/
-*.csv
-# Match replays & temporary system data
-Kaggiculture_Analysis/Downloader/downloads/
-Kaggiculture_Analysis/
-.system_generated/
+**/inputs/
+replay_formatter/**/_parts/
+# Generated player text reports
+/data/
 route_catalog/catalog.json
-*.json.gz
-*.tar.gz
-
-# ==============================================================================
-# EXCLUDED LEGACY MODULES (Downloader, Extractor, and F2 only)
-# ==============================================================================
-Formatter/
+.system_generated/
+Kaggiculture_Analysis/
 
 # ==============================================================================
 # PYTHON / CACHES / ENVIRONMENTS
@@ -61,7 +75,6 @@ env/
 # ==============================================================================
 .vscode/
 .idea/
-.agents/
 .DS_Store
 Thumbs.db
 desktop.ini

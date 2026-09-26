@@ -1104,7 +1104,7 @@ def run():
     parser.add_argument(
         "--data-dir",
         type=Path,
-        default=REPO_ROOT / "Kaggiculture_Analysis" / "Downloader" / "downloads" / "kaggriculture",
+        default=REPO_ROOT / "replay_downloader" / "downloads" / "kaggriculture",
         help="Path to folder containing player directories",
     )
     parser.add_argument(

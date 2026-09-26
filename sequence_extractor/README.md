@@ -8,8 +8,8 @@ A high-performance analysis and extraction engine for Kaggriculture simulation r
 
 The Extractor seamlessly supports **two** input sources:
 
-### Source A: Formatter2 Consolidated Parquet (Default & Recommended)
-- **Path**: `..\Formatter2\formatted_data` (or `B:\Replicator\Formatter2\formatted_data`)
+### Source A: replay_formatter Consolidated Parquet (Default & Recommended)
+- **Path**: `..\replay_formatter\formatted_data` (or `B:\Kaggle\replay_formatter\formatted_data`)
 - **Coverage**: Full match coverage across all Kaggle simulation replays.
 - **Unique Sequences**: **34,714** unique sequences discovered.
 - **Input Tables Consumed**:
@@ -18,7 +18,7 @@ The Extractor seamlessly supports **two** input sources:
   - `steps.parquet`: Fast streaming slice of turn-by-turn composite and atomic moves.
 
 ### Source B: Formatter Outputs
-- **Path**: `..\Formatter\outputs` (or `B:\Replicator\Formatter\outputs`)
+- **Path**: `..\replay_formatter\outputs` (or `B:\Kaggle\replay_formatter\outputs`)
 - **Coverage**: 42 top ranked player datasets.
 - **Input Tables Consumed**:
   - `shop_unlocked_sequence.parquet`
@@ -34,7 +34,7 @@ Double-clicking `run.bat` opens an interactive console menu with the currently a
 ==============================================================================
                 SHOP SEQUENCE MOVE EXTRACTOR (PLAYER PRIORITY)
 ==============================================================================
- Active Input Source : Formatter2 Consolidated Parquet (..\Formatter2\formatted_data)
+ Active Input Source : replay_formatter Consolidated Parquet (..\replay_formatter\formatted_data)
  Output Directory    : .
 
  Key Extraction Logic:
@@ -55,7 +55,7 @@ Double-clicking `run.bat` opens an interactive console menu with the currently a
   [3] View Sequence Statistics
   [4] View All Sequences Arranged by Most Frequent (Top 200)
   [5] Sync Live Kaggle Leaderboard Rankings
-  [6] Switch Input Source (Toggle Formatter2 <-> Formatter)
+  [6] Switch Input Source (Toggle replay_formatter <-> Formatter)
   [7] Exit
 ```
 
@@ -111,14 +111,14 @@ All datasets are written using **atomic writes** (`temp_` + backup swap) to ensu
 ## 6. CLI Usage
 
 ```bash
-# Frequency Analysis (Top 200, Formatter2 dataset)
-python extractor.py --input "..\Formatter2\formatted_data" --frequency --top 200
+# Frequency Analysis (Top 200, replay_formatter dataset)
+python extractor.py --input "..\replay_formatter\formatted_data" --frequency --top 200
 
-# Full Sequence Extraction (Formatter2 dataset)
-python extractor.py --input "..\Formatter2\formatted_data"
+# Full Sequence Extraction (replay_formatter dataset)
+python extractor.py --input "..\replay_formatter\formatted_data"
 
 # Full Sequence Extraction (Formatter dataset)
-python extractor.py --input "..\Formatter\outputs"
+python extractor.py --input "..\replay_formatter\outputs"
 
 # Query a Specific Sequence
 python extractor.py --query "PIZZA, ICE_CREAM"

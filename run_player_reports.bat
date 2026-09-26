@@ -24,10 +24,10 @@ if "%choice%"=="1" (
 
 if "%choice%"=="2" (
     echo.
-    set /p player_name="Enter player folder name (e.g., 01_DSM or DECEM): "
+    set /p player_name="Enter player folder name (e.g., 80_Matt Motoki or 100_Subramanya N): "
     echo.
     echo Running analysis for !player_name!...
-    python generate_player_reports.py --player !player_name! --workers 4
+    python generate_player_reports.py --player "!player_name!" --workers 4
     echo.
     pause
     exit /b 0

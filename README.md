@@ -8,38 +8,39 @@ A high-performance, multi-stage engineering pipeline for downloading, normalizin
 
 ```text
 Kaggiculture_Analysis/
-|-- Downloader/               # Automated Kaggle replay downloader & session manager
+|-- replay_downloader/        # Automated Kaggle replay downloader & session manager
 |   |-- main.py               # Downloader entrypoint & interactive manager
 |   |-- downloader.py         # Multi-worker async replay fetcher
 |   |-- client.py             # Kaggle API client & leaderboard fetcher
 |   |-- auth.py               # Authentication helper
 |   `-- run.bat               # Windows quick-launch runner
 |
-|-- Formatter2/               # High-Performance Formatter & Single-Player Moves Exporter (F2)
+|-- replay_formatter/         # High-Performance Formatter & Single-Player Moves Exporter (F2)
 |   |-- formatter.py          # 9 normalized Parquet tables generator
 |   |-- live_rankings.py      # Real-time Kaggle leaderboard sync (zero overlap)
 |   |-- export_player_moves.py # Single Parquet per player moves extractor
+|   |-- parquet_extractor.py  # Shop sequence + winning-agent moves (formerly Formatter)
 |   `-- run.bat               # Interactive menu runner
 |
-`-- Extractor/                # Shop Sequence Move Extractor & Strategy Analyzer
+`-- sequence_extractor/       # Shop Sequence Move Extractor & Strategy Analyzer
     |-- extractor.py          # Unlocked shop sequence and priority analyzer
     `-- run.bat               # Sequence analysis runner
 ```
 
 ---
 
-## 1. Downloader (`Downloader/`)
+## 1. Downloader (`replay_downloader/`)
 Automated multi-worker pipeline that fetches match replays directly from the Kaggle API.
-- Configurable top-player percentage, matches per player, and outcome filters in `Downloader/config.json`.
+- Configurable top-player percentage, matches per player, and outcome filters in `replay_downloader/config.json`.
 - Automatic resume and deduplication via SQLite download history.
 
-## 2. Replay Formatter & Player Moves Exporter (`Formatter2/`)
+## 2. Replay Formatter & Player Moves Exporter (`replay_formatter/`)
 Stage-3 High-Performance Replay Formatter that normalizes raw replays into flat, queryable Parquet datasets:
 - **Zero-overlap Live Ranking**: Connects to the Kaggle API to sync real-time leaderboard positions.
 - **Single-Player Moves Exporter**: Extracts all moves across all matches for top $N$ players in seconds.
-- **Interactive Menu**: Run `Formatter2/run.bat` to launch the formatter, sync live ranks, or export player move sets.
+- **Interactive Menu**: Run `replay_formatter/run.bat` to launch the formatter, sync live ranks, or export player move sets.
 
-## 3. Sequence Move Extractor (`Extractor/`)
+## 3. Sequence Move Extractor (`sequence_extractor/`)
 Analyzes shop unlock milestones, opening move patterns, and strategic trajectories of winning agents.
 
 ---
@@ -49,7 +50,7 @@ Analyzes shop unlock milestones, opening move patterns, and strategic trajectori
 1. Set up Python 3.10+ environment.
 2. Install requirements in each subfolder:
    ```bash
-   pip install -r Downloader/requirements.txt
+   pip install -r replay_downloader/requirements.txt
    pip install -r F2/requirements.txt
    ```
 3. Run any module via its respective `run.bat` or directly via Python.
