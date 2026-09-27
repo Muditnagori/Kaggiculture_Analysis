@@ -45,12 +45,13 @@ if str(BASE_DIR) not in sys.path:
 
 try:
     from auth import interactive_login
-    from downloader import K2Downloader
+    from downloader import K2Downloader, prune_all_player_folders
     from history import get_history_stats
 except ImportError:
     from .auth import interactive_login
-    from .downloader import K2Downloader
+    from .downloader import K2Downloader, prune_all_player_folders
     from .history import get_history_stats
+
 
 
 CONFIG_FILE = BASE_DIR / "config.json"
@@ -255,7 +256,7 @@ def interactive_menu():
         config = load_config()
         pct = config.get("top_percentage", 10.0)
         quick_cnt = config.get("quick_players_count", 5)
-        matches = config.get("matches_per_player", -1)
+        matches = config.get("matches_per_player", 150)
         matches_lbl = format_matches_label(matches)
         outcome = config.get("outcome_filter", "all")
 
@@ -269,11 +270,12 @@ def interactive_menu():
         print("  5. Custom Download          - Choose custom players, matches & competition", flush=True)
         print("  6. Edit Settings            - Change % for Opt 3, players for Opt 1, matches", flush=True)
         print("  7. View Download History    - Inspect recorded matches & seeds in database", flush=True)
-        print("  8. Kaggle Re-Login          - Open Chrome to log into your Kaggle account", flush=True)
-        print("  9. Exit                     - Close downloader", flush=True)
+        print("  8. Prune & Clean Downloads  - Delete older match replays, keep latest 150 matches", flush=True)
+        print("  9. Kaggle Re-Login          - Open Chrome to log into your Kaggle account", flush=True)
+        print(" 10. Exit                     - Close downloader", flush=True)
         print("=" * 65, flush=True)
 
-        choice = input("Select an option [1-9, default 1]: ").strip()
+        choice = input("Select an option [1-10, default 1]: ").strip()
         if not choice:
             choice = "1"
 
@@ -288,6 +290,7 @@ def interactive_menu():
                 batch_size=config.get("batch_size", 5),
                 output_dir=output_path,
                 auto_zip=config.get("auto_zip", True),
+                max_keep_replays=150,
             )
             asyncio.run(downloader.run())
             break
@@ -303,6 +306,7 @@ def interactive_menu():
                 batch_size=config.get("batch_size", 5),
                 output_dir=output_path,
                 auto_zip=config.get("auto_zip", True),
+                max_keep_replays=150,
             )
             asyncio.run(downloader.run())
             break
@@ -318,6 +322,7 @@ def interactive_menu():
                 batch_size=config.get("batch_size", 5),
                 output_dir=output_path,
                 auto_zip=config.get("auto_zip", True),
+                max_keep_replays=150,
             )
             asyncio.run(downloader.run())
             break
@@ -337,13 +342,22 @@ def interactive_menu():
             show_download_history()
 
         elif choice == "8":
-            asyncio.run(interactive_login())
+            output_path = BASE_DIR / config.get("output_dir", "downloads") / config.get("competition", "kaggriculture")
+            print("\n" + "=" * 65, flush=True)
+            print("     PRUNING & DISK CLEANUP (KEEP LATEST 150 PER PLAYER)", flush=True)
+            print("=" * 65, flush=True)
+            tot_k, tot_d = prune_all_player_folders(output_path, max_keep=150)
+            print(f"\nCleanup Complete: Kept {tot_k:,} latest matches, Deleted {tot_d:,} older replays.", flush=True)
+            print("=" * 65 + "\n", flush=True)
 
         elif choice == "9":
+            asyncio.run(interactive_login())
+
+        elif choice == "10":
             print("\nExiting K2 Downloader. Goodbye!\n")
             break
         else:
-            print("Invalid selection. Please enter a number between 1 and 8.")
+            print("Invalid selection. Please enter a number between 1 and 10.")
 
 
 def main():
@@ -375,8 +389,32 @@ def main():
         "-n",
         "--players",
         type=int,
-        default=config.get("num_players", 5),
+        default=None,
         help="Exact number of top players to download (e.g. 5). Overrides --top-percent if set.",
+    )
+    parser.add_argument(
+        "--min-rank",
+        type=int,
+        default=None,
+        help="Minimum leaderboard rank (e.g. 200)",
+    )
+    parser.add_argument(
+        "--max-rank",
+        type=int,
+        default=None,
+        help="Maximum leaderboard rank (e.g. 220)",
+    )
+    parser.add_argument(
+        "--rank-range",
+        type=str,
+        default=None,
+        help="Leaderboard rank range, e.g. '200-220' or '200:220'",
+    )
+    parser.add_argument(
+        "--prune",
+        "--clean",
+        action="store_true",
+        help="Prune match replays across all player folders, keeping only latest 150 matches per player and deleting older ones",
     )
     parser.add_argument(
         "-p",
@@ -389,7 +427,7 @@ def main():
         "-m",
         "--matches",
         type=parse_matches,
-        default=config.get("matches_per_player", -1),
+        default=config.get("matches_per_player", 150),
         help="Match replays per player (number, or 'all' / -1 for all matches; default: from config.json)",
     )
     parser.add_argument(
@@ -444,6 +482,17 @@ def main():
 
     args = parser.parse_args()
 
+    if args.prune:
+        out_base = BASE_DIR / args.output if not Path(args.output).is_absolute() else Path(args.output)
+        comp_dir = out_base / args.competition
+        print("\n" + "=" * 65, flush=True)
+        print(f"     PRUNING & DISK CLEANUP FOR '{args.competition.upper()}'", flush=True)
+        print("=" * 65, flush=True)
+        tot_k, tot_d = prune_all_player_folders(comp_dir, max_keep=150)
+        print(f"\nCleanup Complete: Kept {tot_k:,} latest matches, Deleted {tot_d:,} older replays.", flush=True)
+        print("=" * 65 + "\n", flush=True)
+        return
+
     if args.login:
         asyncio.run(interactive_login())
         return
@@ -460,8 +509,24 @@ def main():
     players_count = args.players
     top_pct = args.top_percent
     target_player = args.username
+    min_rank = args.min_rank
+    max_rank = args.max_rank
+
+    if args.rank_range:
+        parts = re.split(r"[-:]", args.rank_range.strip())
+        if len(parts) == 2 and parts[0].isdigit() and parts[1].isdigit():
+            min_rank = int(parts[0])
+            max_rank = int(parts[1])
+        elif len(parts) == 1 and parts[0].isdigit():
+            min_rank = int(parts[0])
+            max_rank = int(parts[0])
 
     if target_player:
+        top_pct = None
+        players_count = None
+        min_rank = None
+        max_rank = None
+    elif min_rank is not None or max_rank is not None:
         top_pct = None
         players_count = None
     elif args.top_20:
@@ -480,6 +545,8 @@ def main():
         top_percentage=top_pct,
         num_players=players_count,
         player_name=target_player,
+        min_rank=min_rank,
+        max_rank=max_rank,
         matches_per_player=args.matches,
         outcome_filter=args.outcome,
         batch_size=config.get("batch_size", 5),

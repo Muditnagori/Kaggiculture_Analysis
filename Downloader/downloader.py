@@ -113,6 +113,59 @@ def find_all_cached_matches(search_dirs: list[Path]) -> dict[str, Path]:
             pass
     return cached
 
+
+def prune_player_folder_replays(player_dir: Path, max_keep: int = 150) -> tuple[int, int]:
+    """
+    Scans player_dir for match replay JSON files (<episode_id>.json),
+    sorts them chronologically by episode ID integer / mtime, keeps the latest `max_keep` files,
+    and deletes all older replay files to conserve disk space.
+    Returns (kept_count, deleted_count).
+    """
+    if not player_dir.is_dir() or max_keep <= 0:
+        return 0, 0
+
+    replays = []
+    for f in player_dir.glob("*.json"):
+        if f.stem.isdigit():
+            replays.append((int(f.stem), f))
+        elif not f.name.startswith(f"{player_dir.name}_") and not f.name.endswith(("_clusters.json", "_investments.json", "_report.json")):
+            replays.append((int(f.stat().st_mtime), f))
+
+    replays.sort(key=lambda x: x[0])
+    total = len(replays)
+    if total <= max_keep:
+        return total, 0
+
+    to_delete = replays[:total - max_keep]
+    deleted = 0
+    for _, fpath in to_delete:
+        try:
+            fpath.unlink()
+            deleted += 1
+        except Exception as e:
+            logger.warning(f"Failed to delete older replay {fpath.name}: {e}")
+    return (total - deleted), deleted
+
+
+def prune_all_player_folders(comp_dir: Path, max_keep: int = 150) -> tuple[int, int]:
+    """
+    Prunes all player directories in comp_dir, keeping only the latest `max_keep` replays per player.
+    Returns (total_kept, total_deleted).
+    """
+    if not comp_dir.exists():
+        return 0, 0
+    total_kept = 0
+    total_deleted = 0
+    player_dirs = [d for d in comp_dir.iterdir() if d.is_dir()]
+    for p_dir in player_dirs:
+        kept, deleted = prune_player_folder_replays(p_dir, max_keep=max_keep)
+        total_kept += kept
+        total_deleted += deleted
+        if deleted > 0:
+            print(f"  [Disk Cleanup] {p_dir.name}: Kept latest {kept} matches, deleted {deleted} older replays.", flush=True)
+    return total_kept, total_deleted
+
+
 def sync_existing_player_folders(comp_dir: Path, leaderboard: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """
     Checks all existing downloaded player directories in comp_dir.
@@ -255,23 +308,29 @@ class K2Downloader:
         top_percentage: float | None = 10.0,
         num_players: int | None = 5,
         player_name: str | None = None,
-        matches_per_player: int | str | None = -1,
+        min_rank: int | None = None,
+        max_rank: int | None = None,
+        matches_per_player: int | str | None = 150,
         outcome_filter: str = "all",
         batch_size: int = 5,
         output_dir: Path | str = "downloads",
         auto_zip: bool = True,
         force: bool = False,
+        max_keep_replays: int = 150,
     ):
         self.competition_input = competition
         self.top_percentage = top_percentage
         self.num_players = num_players
         self.player_name = player_name
-        self.matches_per_player = matches_per_player
+        self.min_rank = min_rank
+        self.max_rank = max_rank
+        self.matches_per_player = matches_per_player if matches_per_player is not None else 150
         self.outcome_filter = outcome_filter
         self.batch_size = max(1, int(batch_size or 5))
         self.output_base = Path(output_dir).resolve()
         self.auto_zip = auto_zip
         self.force = force
+        self.max_keep_replays = max_keep_replays if max_keep_replays is not None else 150
 
     async def run(self) -> dict[str, Any]:
         """Execute replay fetch and download pipeline."""
@@ -294,6 +353,10 @@ class K2Downloader:
         print(f"Target Competition : {self.competition_input}", flush=True)
         if self.player_name is not None:
             print(f"Player Target      : Specific player '{self.player_name}'", flush=True)
+        elif self.min_rank is not None or self.max_rank is not None:
+            min_r = self.min_rank if self.min_rank is not None else 1
+            max_r = self.max_rank if self.max_rank is not None else "last"
+            print(f"Player Target      : Rank Range #{min_r} to #{max_r}", flush=True)
         elif self.num_players is not None:
             print(f"Player Target      : Top {self.num_players} players (explicit count)", flush=True)
         else:
@@ -336,6 +399,12 @@ class K2Downloader:
             top_players = [matched]
             print(f"Total Teams on Leaderboard : {total_teams}", flush=True)
             print(f"Found Target Player        : Rank #{matched['rank']} - {matched['team_name']} (ID: {matched['team_id']})", flush=True)
+        elif self.min_rank is not None or self.max_rank is not None:
+            min_r = self.min_rank if self.min_rank is not None else 1
+            max_r = self.max_rank if self.max_rank is not None else total_teams
+            top_players = [p for p in leaderboard if min_r <= p["rank"] <= max_r]
+            print(f"Total Teams on Leaderboard : {total_teams}", flush=True)
+            print(f"Selected Rank Range        : #{min_r} to #{max_r} ({len(top_players)} players)", flush=True)
         elif self.num_players is not None:
             cutoff_rank = min(total_teams, max(1, self.num_players))
             top_players = leaderboard[:cutoff_rank]
@@ -517,13 +586,29 @@ class K2Downloader:
             elif not match_ids:
                 summary_parts.append("0 matches found on Kaggle")
 
+            # Enforce max 150 replays in this player's folder immediately to free disk space
+            if self.max_keep_replays and self.max_keep_replays > 0:
+                p_kept, p_pruned = prune_player_folder_replays(player_dir, max_keep=self.max_keep_replays)
+                if p_pruned > 0:
+                    summary_parts.append(f"{p_pruned} older purged")
+
             print(
                 f" [{idx:02d}/{len(top_players):02d}] Rank #{rank:02d} {name[:24]:<24} : "
                 f"{len(match_ids)} matches ({', '.join(summary_parts)})",
                 flush=True,
             )
 
-        # 4. Create the ZIP Archive containing ONLY the files requested in this run
+        # 4. Final sweep: prune all player directories in comp_dir to max 150 replays
+        if self.max_keep_replays and self.max_keep_replays > 0:
+            print("\n" + "-" * 65, flush=True)
+            print(f"Ensuring all player folders in '{comp_slug}' keep only latest {self.max_keep_replays} matches...", flush=True)
+            tot_kept, tot_pruned = prune_all_player_folders(comp_dir, max_keep=self.max_keep_replays)
+            if tot_pruned > 0:
+                print(f"Purged a total of {tot_pruned} older replays across all player directories.", flush=True)
+            else:
+                print(f"All player folders are within the {self.max_keep_replays}-match limit.", flush=True)
+
+        # 5. Create the ZIP Archive containing ONLY the files requested in this run
         zip_path = None
         if self.auto_zip and requested_files_for_zip:
             if self.player_name:

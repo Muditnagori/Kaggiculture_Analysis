@@ -389,7 +389,7 @@ def analyze_single_replay(replay_path: Path, target_player_name: str, folder_hin
     hands_day_20 = get_hands_count_at_step(479)
     hands_day_30 = get_hands_count_at_step(719)
 
-    # Route Candidate Slicing across all window lengths (up to 720 steps / 10 windows)
+    # Route Candidate Slicing across all 72-step window lengths (up to 720 steps / 10 windows)
     canonical_per_step = []
     loose_per_step = []
     for k in range(1, len(steps)):
@@ -706,11 +706,9 @@ def format_player_text_report(
     for r in results:
         early_pastures[r.opening_pastures_built] += 1
 
-    # Game World & RNG Analysis (field_worlds)
+    # Game World & RNG Analysis (field_worlds) - 2-Shop Opening Worlds
     world_k2_count = Counter()
     world_k2_wins = Counter()
-    world_k3_count = Counter()
-    world_k3_wins = Counter()
 
     for r in results:
         if len(r.shop_sequence) >= 2:
@@ -718,13 +716,8 @@ def format_player_text_report(
             world_k2_count[w2] += 1
             if r.result == "WIN":
                 world_k2_wins[w2] += 1
-        if len(r.shop_sequence) >= 3:
-            w3 = f"{r.shop_sequence[0]} -> {r.shop_sequence[1]} -> {r.shop_sequence[2]}"
-            world_k3_count[w3] += 1
-            if r.result == "WIN":
-                world_k3_wins[w3] += 1
 
-    # Route Catalog & Multi-Horizon Scripting Analysis (route_catalog)
+    # Route Catalog & Scripting Analysis (route_catalog)
     strict_by_horizon: Dict[Tuple[int, int], Counter] = defaultdict(Counter)
     loose_by_horizon: Dict[Tuple[int, int], Counter] = defaultdict(Counter)
 
@@ -744,14 +737,6 @@ def format_player_text_report(
                     longest_recurring_turns = turns
                     longest_recurring_instances = occ
                     longest_recurring_pos = (start_w, len_w)
-
-    key_horizons = [
-        (1, "Days 1-3   ( 72 turns / 1 window ) - Pre-Shop Opening"),
-        (2, "Days 1-6   (144 turns / 2 windows) - Shop 1 Unlocked"),
-        (3, "Days 1-9   (216 turns / 3 windows) - Shop 2 Unlocked"),
-        (5, "Days 1-15  (360 turns / 5 windows) - Mid-Match Halfway"),
-        (10, "Days 1-30  (720 turns / 10 win)    - Full Match Playbook"),
-    ]
 
     w0_strict = strict_by_horizon[(0, 1)]
     w0_most_common_strict = w0_strict.most_common(1)[0][1] if w0_strict else 0
@@ -953,15 +938,6 @@ def format_player_text_report(
         lines.append(f"  {w2:<40} {count:>7}    {w_pct:>6.1f}% ({w_wins}/{count})")
 
     lines.append("")
-    lines.append("  [Top 3-Shop Sequences (k=3 Worlds)]")
-    lines.append("  " + f"{'World (Shop 1 -> Shop 2 -> Shop 3)':<50} {'Matches':<10} {'Win Rate':<10}")
-    lines.append("  " + "-" * 72)
-    for w3, count in world_k3_count.most_common(8):
-        w_wins = world_k3_wins[w3]
-        w_pct = (w_wins / count) * 100.0
-        lines.append(f"  {w3:<50} {count:>7}    {w_pct:>6.1f}% ({w_wins}/{count})")
-    lines.append("")
-
     # Section 9: Route & Scripting Patterns (route_catalog & strategy_decoder)
     lines.append("-" * 80)
     lines.append("9. ROUTE & SCRIPTING PATTERNS (route_catalog)")
@@ -982,9 +958,13 @@ def format_player_text_report(
         (0, 1, "Phase 1: Steps 0-71   (Days 1-3)   - Pre-Shop Opening"),
         (1, 1, "Phase 2: Steps 72-143  (Days 4-6)   - Shop 1 Reveal & Initial Orders"),
         (2, 1, "Phase 3: Steps 144-215 (Days 7-9)   - Shop 2 Reveal & Branching"),
-        (3, 4, "Phase 4: Steps 216-503 (Days 10-21) - Mid-Game Production Engine"),
-        (7, 2, "Phase 5: Steps 504-647 (Days 22-27) - Late-Game Harvest & Saturation"),
-        (9, 1, "Phase 6: Steps 648-719 (Days 28-30) - Terminal Liquidation & End"),
+        (3, 1, "Phase 4: Steps 216-287 (Days 10-12) - Shop 3 Reveal & Production Transition"),
+        (4, 1, "Phase 5: Steps 288-359 (Days 13-15) - Shop 4 Reveal & Production Adaptation"),
+        (5, 1, "Phase 6: Steps 360-431 (Days 16-18) - Shop 5 Reveal & Production Cycle"),
+        (6, 1, "Phase 7: Steps 432-503 (Days 19-21) - Shop 6 Reveal & Mid-Game Optimization"),
+        (7, 1, "Phase 8: Steps 504-575 (Days 22-24) - Shop 7 Reveal & Late-Game Harvest"),
+        (8, 1, "Phase 9: Steps 576-647 (Days 25-27) - Shop 8 Reveal & Harvest Saturation"),
+        (9, 1, "Phase 10: Steps 648-719 (Days 28-30) - Terminal Liquidation & End"),
     ]
 
     for start_w, len_w, label in phases:
@@ -997,7 +977,7 @@ def format_player_text_report(
         lines.append(f"  * {label}: {top_s_pct:>5.1f}% top exact ({top_s:>3}/{total_matches}) | {len(strict_c):>3} unique scripts | {top_l_pct:>5.1f}% macro match")
 
     lines.append("")
-    lines.append("  [Key Phase Segmentation (Route Consistency Across 6 Lifecycle Stages)]")
+    lines.append("  [Key Phase Segmentation (Route Consistency Across 10 72-Step Lifecycle Stages)]")
     lines.append("  " + f"{'Phase / Step Range (Days)':<50} {'Unique Scripts':<16} {'Top Exact Match':<16} {'Top Macro Match':<16}")
     lines.append("  " + "-" * 98)
     for start_w, len_w, label in phases:
@@ -1063,31 +1043,15 @@ def format_player_text_report(
     if script_res and route_res and overlay_res and inv_res:
         lines.extend(render_extended_section_9(script_res, route_res, overlay_res, inv_res, total_matches))
 
-    # Section 10: Match-by-Match Log
-    lines.append("-" * 80)
-    lines.append("10. MATCH-BY-MATCH SUMMARY LOG")
-    lines.append("-" * 80)
-    lines.append(f"  {'Episode ID':<12} {'Opponent':<22} {'Result':<6} {'Score':>10} {'Opp Score':>10} {'Margin':>9} {'Final Cash':>11}")
-    lines.append("  " + "-" * 86)
-    for r in results:
-        sign = "+" if r.margin >= 0 else ""
-        lines.append(
-            f"  {r.episode_id:<12} {r.opponent_name[:20]:<22} {r.result:<6} "
-            f"${r.player_reward:>9,.0f} ${r.opponent_reward:>9,.0f} {sign+f'${r.margin:,.0f}':>9} "
-            f"${r.final_cash_player:>10,.0f}"
-        )
-
-    lines.append("")
-
-    # Section 11: Selling Pattern & Market Trading Moves
+    # Section 10: Selling Pattern & Market Trading Moves
     if selling_res:
         lines.extend(render_section_11(selling_res))
 
-    # Section 12: Opponent Interaction
+    # Section 11: Opponent Interaction
     if opp_res:
         lines.extend(render_section_12(opp_res))
 
-    # Section 13: Eras & Outcomes
+    # Section 12: Eras & Outcomes
     if era_res:
         lines.extend(render_section_13(era_res))
 

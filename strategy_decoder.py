@@ -477,8 +477,13 @@ def decode_script_identification(
 
     clusters_list.sort(key=lambda c: len(c), reverse=True)
 
+    # Filter out minor clusters (< 2 matches) to eliminate minor route clustering overhead
+    major_clusters_list = [c for c in clusters_list if len(c) >= 2]
+    if not major_clusters_list and clusters_list:
+        major_clusters_list = [clusters_list[0]]
+
     cluster_infos: List[ClusterInfo] = []
-    game_cluster_map: Dict[str, int] = {}
+    game_cluster_map: Dict[str, int] = {g.episode_id: 1 for g in games}
 
     ref_field_canonicals: Dict[str, List[str]] = {}
     for r_name, r_acts in reference_routes.items():
@@ -487,7 +492,7 @@ def decode_script_identification(
             for act in r_acts
         ]
 
-    for c_idx, member_indices in enumerate(clusters_list):
+    for c_idx, member_indices in enumerate(major_clusters_list):
         c_id = c_idx + 1
         c_name = f"Cluster {c_id}"
         m_count = len(member_indices)
@@ -716,14 +721,12 @@ def decode_route_selection(
     acc_1 = eval_loo_accuracy(lambda g: g.shop_pair[0])
     acc_2_ord = eval_loo_accuracy(lambda g: g.shop_pair)
     acc_2_unord = eval_loo_accuracy(lambda g: tuple(sorted(g.shop_pair)))
-    acc_3 = eval_loo_accuracy(lambda g: g.shop_triplet)
 
     accuracies = {
         "Majority Baseline (Always Top Cluster)": baseline_acc,
         "First 1 Shop (Shop 1)": acc_1,
         "First 2 Ordered (Shop 1 -> Shop 2)": acc_2_ord,
         "First 2 Unordered {Shop 1, Shop 2}": acc_2_unord,
-        "First 3 Shops (Shop 1 -> Shop 2 -> Shop 3)": acc_3,
     }
     # Best predictive key amongst shop features
     shop_accs = {k: v for k, v in accuracies.items() if "Baseline" not in k}
@@ -791,7 +794,7 @@ def decode_script_overlays(
     script_res: ScriptIdentificationResult,
 ) -> ScriptOverlayResult:
     """
-    Diffs each game against its cluster's base script to isolate adaptive overlays.
+    Diffs each game against its cluster's base script to compute field and market deviation rates.
     """
     n_games = len(games)
     if n_games == 0 or not script_res.clusters:
@@ -804,139 +807,19 @@ def decode_script_overlays(
     market_diffs_total = 0
     total_steps_evaluated = n_games * TOTAL_STEPS
 
-    cat_counts: Dict[str, int] = defaultdict(int)
-    cat_day_hour: Dict[str, Counter] = defaultdict(Counter)
-    cond_investments: List[ConditionalInvestmentEvent] = []
-
     for g in games:
         c_id = script_res.game_cluster_map.get(g.episode_id, default_cluster.cluster_id)
         base = cluster_by_id.get(c_id, default_cluster)
 
         for t in range(min(TOTAL_STEPS, len(g.steps))):
             s = g.steps[t]
-            day = s.day
-            hour = s.hour
-
-            base_f_canon = base.base_field_steps[t]
-            base_m_canon = base.base_market_steps[t]
-
-            # Field diff
-            f_diff = (s.field_canonical != base_f_canon)
-            if f_diff:
+            if s.field_canonical != base.base_field_steps[t]:
                 field_diffs_total += 1
-                p_f_str = ":".join(str(x).upper() for x in s.player_farmer_act) if s.player_farmer_act else "PASS"
-                if "FEED" in base_f_canon and ("PASS" in s.field_canonical or "FEED" not in s.field_canonical):
-                    cat_counts["FEED->PASS"] += 1
-                    cat_day_hour["FEED->PASS"][(day, hour)] += 1
-                elif any(cmd in ("BUILD_PASTURE", "BUILD_COOP", "PLACE") for cmd in p_f_str.split(":")):
-                    cat_counts["animal bought/placed"] += 1
-                    cat_day_hour["animal bought/placed"][(day, hour)] += 1
-                    cond_investments.append(ConditionalInvestmentEvent(
-                        g.episode_id, t, day, hour, "ANIMAL_FIELD", p_f_str, s.player_money, dict(s.market_prices), list(s.unlocked_shops)
-                    ))
-                elif "PLANT:TOMATO" in p_f_str:
-                    cat_counts["other"] += 1
-                    cond_investments.append(ConditionalInvestmentEvent(
-                        g.episode_id, t, day, hour, "TOMATO_PLANT", p_f_str, s.player_money, dict(s.market_prices), list(s.unlocked_shops)
-                    ))
-                else:
-                    cat_counts["other"] += 1
-                    cat_day_hour["other"][(day, hour)] += 1
-
-            # Market diff
-            m_diff = (s.market_canonical != base_m_canon)
-            if m_diff:
+            if s.market_canonical != base.base_market_steps[t]:
                 market_diffs_total += 1
-
-                g_orders = s.player_market_act or []
-                base_raw_m = base.base_actions[t].get("market", []) or []
-
-                g_orders_norm = [tuple(str(x).upper() for x in o) for o in g_orders if o]
-                b_orders_norm = [tuple(str(x).upper() for x in o) for o in base_raw_m if o]
-
-                g_types = [o[0] for o in g_orders_norm]
-                b_types = [o[0] for o in b_orders_norm]
-
-                g_sells = {o[1]: (int(o[2]) if len(o) > 2 and str(o[2]).isdigit() else 1) for o in g_orders_norm if o[0] == "SELL" and len(o) > 1}
-                b_sells = {o[1]: (int(o[2]) if len(o) > 2 and str(o[2]).isdigit() else 1) for o in b_orders_norm if o[0] == "SELL" and len(o) > 1}
-
-                g_wheat_buys = sum(int(o[2]) if len(o) > 2 and str(o[2]).isdigit() else 1 for o in g_orders_norm if "BUY" in o[0] and len(o) > 1 and "WHEAT" in o[1])
-                b_wheat_buys = sum(int(o[2]) if len(o) > 2 and str(o[2]).isdigit() else 1 for o in b_orders_norm if "BUY" in o[0] and len(o) > 1 and "WHEAT" in o[1])
-
-                if set(g_orders_norm) == set(b_orders_norm) and g_orders_norm != b_orders_norm:
-                    cat_counts["orders reordered"] += 1
-                    cat_day_hour["orders reordered"][(day, hour)] += 1
-                elif any(o[0] == "BUY_LAND" for o in g_orders_norm) and not any(o[0] == "BUY_LAND" for o in b_orders_norm):
-                    cat_counts["land bought"] += 1
-                    cat_day_hour["land bought"][(day, hour)] += 1
-                    cond_investments.append(ConditionalInvestmentEvent(
-                        g.episode_id, t, day, hour, "LAND_PURCHASE", "BUY_LAND", s.player_money, dict(s.market_prices), list(s.unlocked_shops)
-                    ))
-                elif any(o[0] == "BUY_ANIMAL" for o in g_orders_norm) and not any(o[0] == "BUY_ANIMAL" for o in b_orders_norm):
-                    cat_counts["animal bought/placed"] += 1
-                    cat_day_hour["animal bought/placed"][(day, hour)] += 1
-                    cond_investments.append(ConditionalInvestmentEvent(
-                        g.episode_id, t, day, hour, "BUY_ANIMAL", str(g_orders), s.player_money, dict(s.market_prices), list(s.unlocked_shops)
-                    ))
-                elif g_types.count("HIRE") > b_types.count("HIRE"):
-                    cat_counts["extra HIRE"] += 1
-                    cat_day_hour["extra HIRE"][(day, hour)] += 1
-                elif g_sells and not b_sells:
-                    cat_counts["SELL added"] += 1
-                    cat_day_hour["SELL added"][(day, hour)] += 1
-                elif g_sells and b_sells and g_sells != b_sells:
-                    cat_counts["SELL qty changed"] += 1
-                    cat_day_hour["SELL qty changed"][(day, hour)] += 1
-                elif g_wheat_buys > b_wheat_buys:
-                    cat_counts["BUY WHEAT added"] += 1
-                    cat_day_hour["BUY WHEAT added"][(day, hour)] += 1
-                elif g_wheat_buys < b_wheat_buys:
-                    cat_counts["BUY WHEAT reduced"] += 1
-                    cat_day_hour["BUY WHEAT reduced"][(day, hour)] += 1
-                elif any("TOMATO" in str(o) for o in g_orders_norm) and not any("TOMATO" in str(o) for o in b_orders_norm):
-                    cat_counts["other"] += 1
-                    cond_investments.append(ConditionalInvestmentEvent(
-                        g.episode_id, t, day, hour, "TOMATO_BUY", str(g_orders), s.player_money, dict(s.market_prices), list(s.unlocked_shops)
-                    ))
-                else:
-                    cat_counts["other"] += 1
-                    cat_day_hour["other"][(day, hour)] += 1
 
     avg_dev_field = (field_diffs_total / total_steps_evaluated) * 100.0 if total_steps_evaluated > 0 else 0.0
     avg_dev_market = (market_diffs_total / total_steps_evaluated) * 100.0 if total_steps_evaluated > 0 else 0.0
-
-    active_windows: Dict[str, str] = {}
-    cal_dict: Dict[str, List[Tuple[int, int, int]]] = {}
-
-    for cat, dh_counts in cat_day_hour.items():
-        sorted_entries = sorted(dh_counts.items(), key=lambda x: x[1], reverse=True)
-        cal_dict[cat] = [(d, h, cnt) for (d, h), cnt in sorted_entries]
-
-        days = [d + 1 for (d, h) in dh_counts.keys()]
-        hours = [h for (d, h) in dh_counts.keys()]
-        if days and hours:
-            min_d, max_d = min(days), max(days)
-            common_h = Counter(hours).most_common(2)
-            h_str = ", ".join(f"hr {h}" for h, _ in common_h)
-            active_windows[cat] = f"Days {min_d}–{max_d} (most active: {h_str})"
-        else:
-            active_windows[cat] = "None"
-
-    trigger_ranges: Dict[str, str] = {}
-    if cond_investments:
-        by_type: Dict[str, List[ConditionalInvestmentEvent]] = defaultdict(list)
-        for ev in cond_investments:
-            by_type[ev.category].append(ev)
-
-        for inv_type, ev_list in by_type.items():
-            min_cash = min(e.cash for e in ev_list)
-            max_cash = max(e.cash for e in ev_list)
-            steps = [e.step for e in ev_list]
-            min_step, max_step = min(steps), max(steps)
-            trigger_ranges[inv_type] = (
-                f"{len(ev_list)} events | Steps {min_step}–{max_step} (Days {min_step//24+1}–{max_step//24+1}) | "
-                f"Cash range: ${min_cash:,.0f} – ${max_cash:,.0f}"
-            )
 
     pair_groups: Dict[Tuple[str, str], List[DecodedGame]] = defaultdict(list)
     for g in games:
@@ -961,11 +844,11 @@ def decode_script_overlays(
     return ScriptOverlayResult(
         avg_deviation_rate_field=avg_dev_field,
         avg_deviation_rate_market=avg_dev_market,
-        deviation_type_counts=dict(cat_counts),
-        deviation_calendar=cal_dict,
-        active_windows_summary=active_windows,
-        conditional_investments=cond_investments,
-        investment_trigger_ranges=trigger_ranges,
+        deviation_type_counts={},
+        deviation_calendar={},
+        active_windows_summary={},
+        conditional_investments=[],
+        investment_trigger_ranges={},
         reactivity_score=reactivity_score,
     )
 
@@ -1013,7 +896,6 @@ def decode_selling_and_market(
             {}, [], {}, {}, 0.0, 0.0, 0.0, 0.0, {}, {}, 0.0, 0.0, 0.0, 0.0, [], 0, 0.0, {}, 0.0, 0.0, 0.0, 0.0
         )
 
-    sell_heatmap: Dict[str, Dict[Tuple[int, int], float]] = defaultdict(lambda: defaultdict(float))
     first_sale_tracker: Dict[str, List[int]] = defaultdict(list)
     last_sale_tracker: Dict[str, List[int]] = defaultdict(list)
 
@@ -1101,7 +983,6 @@ def decode_selling_and_market(
 
                 if cmd == "SELL":
                     sells_in_turn.append((o_idx, item, qty))
-                    sell_heatmap[item][(day, hour)] += qty
                     first_sale_tracker[item].append(t)
                     last_sale_tracker[item].append(t)
                     product_sale_turns[item].append(t)
@@ -1189,13 +1070,6 @@ def decode_selling_and_market(
     first_sale_res = {p: min(steps) if steps else None for p, steps in first_sale_tracker.items()}
     last_sale_res = {p: max(steps) if steps else None for p, steps in last_sale_tracker.items()}
 
-    all_heatmap_cells = []
-    for prod, dh_map in sell_heatmap.items():
-        for (d, h), qty in dh_map.items():
-            all_heatmap_cells.append((prod, d + 1, h, qty / n_games))
-    all_heatmap_cells.sort(key=lambda x: x[3], reverse=True)
-    top_cells = all_heatmap_cells[:8]
-
     sell_split_pattern = {}
     for prod, t_list in product_sale_turns.items():
         avg_turns_per_game = len(t_list) / n_games
@@ -1226,8 +1100,8 @@ def decode_selling_and_market(
     full_queue_pct = (full_queue_count / (n_games * TOTAL_STEPS) * 100.0) if n_games > 0 else 0.0
 
     return SellingMarketResult(
-        sell_heatmap=sell_heatmap,
-        top_heatmap_cells=top_cells,
+        sell_heatmap={},
+        top_heatmap_cells=[],
         first_sale_steps=first_sale_res,
         last_sale_steps=last_sale_res,
         terminal_liquidation_share_d30=term_liq_d30,
@@ -1835,13 +1709,6 @@ def export_strategy_artifacts(
     """Writes detailed tables to CSV and JSON next to the report."""
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    heatmap_file = out_dir / f"{player_prefix}_selling_heatmap.csv"
-    with open(heatmap_file, "w", encoding="utf-8") as f:
-        f.write("product,day,hour,total_quantity_sold\n")
-        for prod, dh_map in selling_res.sell_heatmap.items():
-            for (d, h), qty in sorted(dh_map.items()):
-                f.write(f"{prod},{d+1},{h},{qty:.1f}\n")
-
     clusters_file = out_dir / f"{player_prefix}_route_clusters.json"
     clusters_data = [
         {
@@ -1862,23 +1729,6 @@ def export_strategy_artifacts(
         f.write("step,day,hour,unit,command,frequency_pct\n")
         for step, unit, cmd, freq in inv_res.invariant_actions_top30:
             f.write(f"{step},{step//24+1},{step%24},{unit},\"{cmd}\",{freq:.1f}\n")
-
-    overlays_file = out_dir / f"{player_prefix}_conditional_investments.json"
-    inv_data = [
-        {
-            "episode_id": ev.episode_id,
-            "step": ev.step,
-            "day": ev.day + 1,
-            "hour": ev.hour,
-            "category": ev.category,
-            "action": ev.action_str,
-            "cash": round(ev.cash, 2),
-            "prices": ev.prices,
-            "unlocked_shops": ev.shops,
-        }
-        for ev in overlay_res.conditional_investments
-    ]
-    overlays_file.write_text(json.dumps(inv_data, indent=2), encoding="utf-8")
 
 
 # =============================================================================
@@ -1914,10 +1764,6 @@ def render_extended_section_9(
             f"{c.public_match_category[:26]:<28} "
             f"{c.public_match_pct:>6.1f}%"
         )
-    if len(script_res.clusters) > 8:
-        remaining_cnt = sum(c.match_count for c in script_res.clusters[8:])
-        remaining_share = (remaining_cnt / total_matches) * 100.0 if total_matches > 0 else 0.0
-        lines.append(f"  ... and {len(script_res.clusters) - 8} additional minor route clusters ({remaining_cnt} matches, {remaining_share:.1f}% share - details in JSON artifact)")
     lines.append("")
 
     lines.append("  [Shop-Driven Route Selection Table (at Step 144 / Day 6 Unlock)]")
@@ -1952,20 +1798,6 @@ def render_extended_section_9(
     lines.append(f"    - Market Deviation Rate:       {overlay_res.avg_deviation_rate_market:.2f}% of turn steps differ from base cluster script")
     lines.append(f"    - Reactivity Score:            {overlay_res.reactivity_score:.2f}% (Mean pairwise action diff between same-shop games)")
     lines.append("")
-    lines.append("  [Overlay Deviation Categories & Active Time Windows]")
-    if overlay_res.deviation_type_counts:
-        for cat, count in sorted(overlay_res.deviation_type_counts.items(), key=lambda x: x[1], reverse=True):
-            win_str = overlay_res.active_windows_summary.get(cat, "Various turns")
-            lines.append(f"    - {cat:<24}: {count:>6} occurrences | Active: {win_str}")
-    else:
-        lines.append("    (No off-script deviations detected)")
-    lines.append("")
-
-    if overlay_res.investment_trigger_ranges:
-        lines.append("  [Off-Script Conditional Investment Triggers]")
-        for inv_type, trig_str in overlay_res.investment_trigger_ranges.items():
-            lines.append(f"    - {inv_type:<18}: {trig_str}")
-        lines.append("")
 
     lines.append("  [Strategic Action & Market Invariants (>= 95% Determinism)]")
     lines.append(f"    - Total Invariant Actions:     {inv_res.total_invariant_actions_count} deterministic unit-step actions across all games")
@@ -1998,10 +1830,10 @@ def render_extended_section_6(field_res: FieldLaborResult) -> List[str]:
 
 
 def render_section_11(selling_res: SellingMarketResult) -> List[str]:
-    """Renders Section 11: Selling Pattern & Market Moves."""
+    """Renders Section 10: Selling Pattern & Market Moves."""
     lines = []
     lines.append("-" * 80)
-    lines.append("11. SELLING PATTERN & MARKET TRADING MOVES")
+    lines.append("10. SELLING PATTERN & MARKET TRADING MOVES")
     lines.append("-" * 80)
     lines.append(f"  * Terminal Liquidation Share:    {selling_res.terminal_liquidation_share_d30:.1f}% of total revenue in Day 30 | {selling_res.terminal_liquidation_share_step718:.1f}% at Step 718/719")
     lines.append(f"  * Market Order Prioritization:   {selling_res.sell_precedes_buy_pct:.1f}% turns execute all SELLs before BUYs | {selling_res.sells_sorted_by_value_pct:.1f}% sells sorted by unit value")
@@ -2024,13 +1856,6 @@ def render_section_11(selling_res: SellingMarketResult) -> List[str]:
         lines.append(f"  {prod:<14} {f_str:<16} {l_str:<16} {p_pct:>6.1f}% avg price        {split_p:<24}")
     lines.append("")
 
-    lines.append("  [Top Selling Windows (Day x Hour Heatmap Leaders - Avg Units Sold)]")
-    if selling_res.top_heatmap_cells:
-        for prod, day, hr, qty in selling_res.top_heatmap_cells[:6]:
-            lines.append(f"    - Day {day:>2}, Hour {hr:>2} ({prod:<12}): {qty:>6.1f} units liquidated per match")
-    lines.append("    (Complete 30x24 selling heatmap exported to CSV)")
-    lines.append("")
-
     lines.append("  [Opening Market Orders (First 3 Turns)]")
     for step_num, ord_list, count, pct in selling_res.opening_orders:
         lines.append(f"    - Step {step_num}: {ord_list[0][:50]:<50} ({count} matches, {pct:.1f}%)")
@@ -2047,10 +1872,10 @@ def render_section_11(selling_res: SellingMarketResult) -> List[str]:
 
 
 def render_section_12(opp_res: OpponentInteractionResult) -> List[str]:
-    """Renders Section 12: Opponent Interaction."""
+    """Renders Section 11: Opponent Interaction."""
     lines = []
     lines.append("-" * 80)
-    lines.append("12. OPPONENT INTERACTION & MIRROR MATCHUP DYNAMICS")
+    lines.append("11. OPPONENT INTERACTION & MIRROR MATCHUP DYNAMICS")
     lines.append("-" * 80)
     lines.append("  [Performance vs Mirror Opponents (>=90% Shared Farm Layout on >=6 Days)]")
     lines.append(f"  * Mirror Bot Matches:            {opp_res.mirror_matches_count} matches | Win Rate: {opp_res.mirror_win_rate:.1f}% | Avg Margin: {'+' if opp_res.mirror_avg_margin>=0 else ''}${opp_res.mirror_avg_margin:,.0f}")
@@ -2076,10 +1901,10 @@ def render_section_12(opp_res: OpponentInteractionResult) -> List[str]:
 
 
 def render_section_13(era_res: EraOutcomeResult) -> List[str]:
-    """Renders Section 13: Eras & Outcomes."""
+    """Renders Section 12: Eras & Outcomes."""
     lines = []
     lines.append("-" * 80)
-    lines.append("13. ERAS & CHRONOLOGICAL OUTCOMES")
+    lines.append("12. ERAS & CHRONOLOGICAL OUTCOMES")
     lines.append("-" * 80)
     lines.append("  [Chronological Performance Eras (Statistical Change-Point Detection)]")
     lines.append("  " + f"{'Era ID':<10} {'Date Range (UTC)':<32} {'Matches':<10} {'Record (W/L/T)':<16} {'Win Rate':<10} {'Avg Margin':>11}")
@@ -2100,8 +1925,6 @@ def render_section_13(era_res: EraOutcomeResult) -> List[str]:
     items = list(era_res.win_rate_by_cluster.items())
     for c_name, (cnt, wr, margin) in items[:6]:
         lines.append(f"  {c_name:<22} {cnt:>4} matches {wr:>6.1f}%    {'+' if margin>=0 else ''}${margin:>10,.0f}")
-    if len(items) > 6:
-        lines.append(f"  ... and {len(items) - 6} additional minor clusters (details in JSON artifact)")
     lines.append("")
 
     if era_res.loss_divergence_stats:

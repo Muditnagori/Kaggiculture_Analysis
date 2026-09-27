@@ -160,7 +160,7 @@ class KaggleSession:
         normalized.sort(key=lambda r: r["rank"])
         return normalized
 
-    def list_episodes(self, submission_id: str | int, max_retries: int = 4) -> list[dict[str, Any]]:
+    def list_episodes(self, submission_id: str | int, max_retries: int = 6) -> list[dict[str, Any]]:
         """Fetch list of matches for a player's submission ID with backoff."""
         sid_val = int(submission_id) if str(submission_id).isdigit() else str(submission_id)
         payload = json.dumps({"submissionId": sid_val}).encode("utf-8")
@@ -173,21 +173,29 @@ class KaggleSession:
                 method="POST",
             )
             try:
-                with urllib.request.urlopen(req, context=_SSL_CTX, timeout=25) as resp:
+                with urllib.request.urlopen(req, context=_SSL_CTX, timeout=30) as resp:
                     data = json.loads(resp.read().decode("utf-8"))
                     return data.get("episodes") or []
             except urllib.error.HTTPError as e:
                 if e.code == 429:
                     wait_sec = 8 * (attempt + 1)
                     print(f" [Rate-limit 429: cooling down for {wait_sec}s ({attempt + 1}/{max_retries})...]", end="", flush=True)
-                    import time
                     time.sleep(wait_sec)
                     print(" retrying...", flush=True)
                     continue
                 logger.error("HTTP error %s listing episodes for submission %s", e.code, submission_id)
+                if attempt < max_retries - 1:
+                    time.sleep(3 * (attempt + 1))
+                    continue
                 return []
             except Exception as e:
-                logger.error("Error listing episodes for submission %s: %s", submission_id, e)
+                logger.warning("Attempt %d/%d error listing episodes for submission %s: %s", attempt + 1, max_retries, submission_id, e)
+                if attempt < max_retries - 1:
+                    wait_sec = 3 * (attempt + 1)
+                    print(f" [Network retry in {wait_sec}s ({attempt + 1}/{max_retries})...]", end="", flush=True)
+                    time.sleep(wait_sec)
+                    print(" retrying...", flush=True)
+                    continue
                 return []
 
         return []
